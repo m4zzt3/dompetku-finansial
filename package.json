@@ -1,0 +1,14 @@
+{
+  "name": "dompetku-finansial",
+  "version": "1.0.0",
+  "description": "Aplikasi Manajemen Keuangan Pribadi, Multi-Akun & Pindah Dana",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "serve dist",
+    "deploy:firebase": "npm run build && npx firebase-tools deploy --only hosting"
+  },
+  "dependencies": {
+    "serve": "^14.2.0"
+  }
+}

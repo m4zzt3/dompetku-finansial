@@ -1,0 +1,4917 @@
+<script>
+/**
+ * DompetKu (FinansialKu) — Frontend Logic with Alpine.js
+ * Multi-Dompet, Superadmin User Management & Offline Sync
+ */
+
+// 1. Konfigurasi Endpoint Apps Script
+const PROD_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz_j96H7_A7moGhVgA0sRf859LZRd7qMGWTvzkV63QpWTNL8t1_xB9novW0-XURJB_x/exec';
+const DEV_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz_j96H7_A7moGhVgA0sRf859LZRd7qMGWTvzkV63QpWTNL8t1_xB9novW0-XURJB_x/exec';
+const WEB_APP_URLS = [PROD_WEB_APP_URL];
+
+const CACHE_KEY = 'DOMPETKU_APP_DATA_V2';
+const THEME_KEY = 'DOMPETKU_THEME';
+const USER_KEY = 'DOMPETKU_CURRENT_USER';
+const ACTIVE_WALLET_KEY = 'DOMPETKU_ACTIVE_WALLET';
+
+// Helper API Caller
+async function runApi(action, args = []) {
+  // Jika di dalam Google Apps Script runtime
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)[action](...args);
+    });
+  }
+
+  // Jika Web App URL masih placeholder, gunakan local fallback
+  const targetUrl = WEB_APP_URLS[0];
+  if (!targetUrl || targetUrl.includes('PROD_WEB_APP_URL_HERE')) {
+    return { localOnly: true };
+  }
+
+  // Fetch via HTTP POST ke Apps Script
+  const response = await fetch(targetUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action, args })
+  });
+  return await response.json();
+}
+
+// =========================================================================
+// SETUP GLOBAL SWEETALERT2 MODERN FORMATTER
+// Menyeragamkan seluruh popup notifikasi, validasi & konfirmasi di aplikasi
+// dengan estetika kartu modern, glowing ambient blur & tombol gradient
+// persis seperti modal Logout dan Login Berhasil.
+// =========================================================================
+(function setupModernSwal() {
+  if (typeof window === 'undefined') return;
+
+  function initSwalWrapper() {
+    if (!window.Swal || window.Swal.__isModernConfigured) return;
+    window.Swal.__isModernConfigured = true;
+
+    const originalFire = window.Swal.fire.bind(window.Swal);
+
+    window.Swal.fire = function(...args) {
+      let opts = {};
+      if (typeof args[0] === 'string') {
+        opts.title = args[0];
+        if (typeof args[1] === 'string') opts.text = args[1];
+        if (typeof args[2] === 'string') opts.icon = args[2];
+      } else if (typeof args[0] === 'object' && args[0] !== null) {
+        opts = { ...args[0] };
+      }
+
+      const isDark = document.documentElement.classList.contains('dark') || 
+                     localStorage.getItem('DOMPETKU_THEME') === 'dark';
+
+      // Deteksi tipe ikon & konteks aksi
+      const rawIcon = opts.icon || (opts.showCancelButton ? 'question' : 'info');
+      const titleText = opts.title || '';
+      const bodyText = opts.text || '';
+      
+      // Deteksi aksi destruktif / hapus / keluar
+      const isDeleteOrDanger = /hapus|delete|buang|keluar/i.test(titleText) ||
+                               /hapus|delete|buang|keluar/i.test(opts.confirmButtonText || '') ||
+                               rawIcon === 'error';
+
+      // Konfigurasi visual matching Logout & Login Berhasil
+      let tag = 'INFORMASI';
+      let tagColor = 'text-blue-600 dark:text-blue-400';
+      let glow = 'bg-blue-500/20 dark:bg-blue-500/30';
+      let gradient = 'bg-gradient-to-tr from-blue-600 to-indigo-500';
+      let shadow = 'shadow-blue-500/30';
+      let iconClass = 'fa-circle-info';
+      let confirmGradient = 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/25';
+
+      if (isDeleteOrDanger) {
+        tag = /hapus/i.test(titleText) ? 'KONFIRMASI HAPUS' : (rawIcon === 'error' ? 'PERINGATAN' : 'KONFIRMASI');
+        tagColor = 'text-rose-600 dark:text-rose-400';
+        glow = 'bg-rose-500/20 dark:bg-rose-500/30';
+        gradient = 'bg-gradient-to-tr from-rose-600 to-rose-500';
+        shadow = 'shadow-rose-500/30';
+        iconClass = /hapus/i.test(titleText) ? 'fa-trash-can' : 'fa-circle-xmark';
+        confirmGradient = 'bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-700 hover:to-rose-600 text-white shadow-rose-500/25';
+      } else if (rawIcon === 'success') {
+        tag = 'BERHASIL';
+        tagColor = 'text-emerald-600 dark:text-emerald-400';
+        glow = 'bg-emerald-500/20 dark:bg-emerald-500/30';
+        gradient = 'bg-gradient-to-tr from-emerald-600 to-teal-500';
+        shadow = 'shadow-emerald-500/30';
+        iconClass = 'fa-circle-check';
+        confirmGradient = 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-emerald-500/25';
+      } else if (rawIcon === 'warning') {
+        tag = opts.showCancelButton ? 'KONFIRMASI' : 'PERHATIAN';
+        tagColor = 'text-amber-600 dark:text-amber-400';
+        glow = 'bg-amber-500/20 dark:bg-amber-500/30';
+        gradient = 'bg-gradient-to-tr from-amber-500 to-orange-500';
+        shadow = 'shadow-amber-500/30';
+        iconClass = 'fa-triangle-exclamation';
+        confirmGradient = 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-amber-500/25';
+      } else if (rawIcon === 'question') {
+        tag = 'KONFIRMASI';
+        tagColor = 'text-violet-600 dark:text-violet-400';
+        glow = 'bg-violet-500/20 dark:bg-violet-500/30';
+        gradient = 'bg-gradient-to-tr from-violet-600 to-purple-600';
+        shadow = 'shadow-violet-500/30';
+        iconClass = 'fa-circle-question';
+        confirmGradient = 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-violet-500/25';
+      }
+
+      // Format Toast Notifikasi Modern (mencegah lingkaran kosong bawaan SweetAlert2)
+      const isToast = Boolean(opts.toast || (this && this.params && this.params.toast));
+      if (isToast) {
+        if (!opts.html) {
+          opts.html = `
+            <div class="flex items-center gap-3 py-1 text-left w-full">
+              <div class="w-8 h-8 rounded-xl ${gradient} text-white flex items-center justify-center text-sm shadow-md shrink-0">
+                <i class="fa-solid ${iconClass}"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-xs font-bold text-slate-900 dark:text-white leading-snug">${titleText}</div>
+                ${bodyText ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">${bodyText}</div>` : ''}
+              </div>
+            </div>
+          `;
+        }
+        delete opts.icon;
+        delete opts.title;
+        delete opts.text;
+        opts.buttonsStyling = false;
+        opts.background = isDark ? '#0f172a' : '#ffffff';
+        opts.customClass = {
+          popup: 'rounded-2xl p-3 shadow-xl border border-slate-200/90 dark:border-slate-800/90 backdrop-blur-xl font-sans',
+          ...(opts.customClass || {})
+        };
+        return originalFire(opts);
+      }
+
+      // Format HTML modern jika belum disediakan oleh pemanggil
+      if (!opts.html) {
+        opts.html = `
+          <div class="p-2 sm:p-3 text-center space-y-3">
+            <div class="relative mx-auto w-16 h-16 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-2xl ${glow} blur-xl"></div>
+              <div class="relative w-16 h-16 rounded-2xl ${gradient} text-white flex items-center justify-center text-2xl shadow-lg ${shadow}">
+                <i class="fa-solid ${iconClass}"></i>
+              </div>
+            </div>
+            <div>
+              <span class="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider ${tagColor} block">${tag}</span>
+              <h3 class="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white mt-1 leading-snug">${titleText}</h3>
+              ${bodyText ? `<p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">${bodyText}</p>` : ''}
+            </div>
+          </div>
+        `;
+      }
+
+      // Bersihkan properti bawaan SweetAlert2 yang digantikan HTML modern
+      delete opts.icon;
+      delete opts.title;
+      delete opts.text;
+      delete opts.confirmButtonColor;
+      delete opts.cancelButtonColor;
+
+      opts.buttonsStyling = false;
+      opts.background = isDark ? '#0f172a' : '#ffffff';
+
+      // Jika showConfirmButton eksplisit false atau timer tanpa confirm button
+      if (opts.showConfirmButton === false || (opts.timer && opts.showConfirmButton !== true)) {
+        opts.showConfirmButton = false;
+      } else {
+        opts.confirmButtonText = opts.confirmButtonText || (opts.showCancelButton ? 'Lanjutkan' : 'Oke, Paham');
+      }
+      opts.cancelButtonText = opts.cancelButtonText || 'Batal';
+
+      const defaultCustomClass = {
+        popup: 'rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200/90 dark:border-slate-800/90 backdrop-blur-2xl max-w-sm w-full font-sans',
+        actions: opts.showCancelButton ? 'grid grid-cols-2 gap-3 pt-2 w-full' : 'flex justify-center items-center pt-2 w-full',
+        confirmButton: opts.showCancelButton
+          ? `w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold active:scale-98 transition-all cursor-pointer shadow-md ${confirmGradient}`
+          : `w-full max-w-xs mx-auto py-2.5 px-6 rounded-xl text-xs sm:text-sm font-bold active:scale-98 transition-all cursor-pointer shadow-md ${confirmGradient}`,
+        cancelButton: 'w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-98 transition-all cursor-pointer'
+      };
+
+      opts.customClass = {
+        ...defaultCustomClass,
+        ...(opts.customClass || {})
+      };
+
+      return originalFire(opts);
+    };
+  }
+
+  if (window.Swal) {
+    initSwalWrapper();
+  } else {
+    document.addEventListener('DOMContentLoaded', initSwalWrapper);
+  }
+})();
+
+function appData() {
+  return {
+    // State Navigasi & UI
+    activeTab: 'dashboard', // 'dashboard', 'accounts', 'transactions', 'analytics', 'categories', 'users', 'wallets'
+    isLoading: false,
+    isDarkMode: false,
+    backendStatus: 'local', // 'connected' | 'local'
+    isSidebarOpen: false,
+    showWalletSwitcherDropdown: false,
+    showUserDropdown: false,
+
+    // Otentikasi & Login Gate
+    isLoggedIn: false,
+    loginForm: {
+      username: '',
+      password: '',
+      showPassword: false,
+      rememberMe: true,
+      loading: false,
+      errorMessage: ''
+    },
+
+    // Current User & Session
+    currentUser: {
+      UserID: 'USR-1',
+      Username: 'superadmin',
+      Role: 'superadmin',
+      FullName: 'Super Administrator',
+      Pin: '123456',
+      IsActive: 'TRUE',
+      AssignedWallets: '*'
+    },
+    users: [],
+    showUserModal: false,
+    showSwitchUserModal: false,
+    showLogoutModal: false,
+    userSearchQuery: '',
+    userRoleFilter: 'ALL', // 'ALL', 'superadmin', 'admin', 'user'
+
+    userForm: {
+      UserID: '',
+      Username: '',
+      FullName: '',
+      Password: '',
+      Role: 'user',
+      Pin: '123456',
+      IsActive: 'TRUE',
+      AssignedWallets: ['*']
+    },
+
+    // Multi-Dompet (Wallets)
+    wallets: [],
+    activeWalletId: 'WLT-1',
+    showWalletModal: false,
+    showManageWalletsModal: false,
+
+    walletForm: {
+      WalletID: '',
+      NamaDompet: '',
+      Deskripsi: '',
+      Ikon: 'fa-wallet',
+      Warna: '#059669',
+      initDefaults: true
+    },
+
+    availableWalletIcons: [
+      'fa-wallet', 'fa-shop', 'fa-building-columns', 'fa-piggy-bank',
+      'fa-house', 'fa-briefcase', 'fa-cart-shopping', 'fa-store',
+      'fa-chart-line', 'fa-vault', 'fa-car', 'fa-credit-card',
+      'fa-coins', 'fa-cash-register', 'fa-bag-shopping', 'fa-landmark'
+    ],
+
+    availableWalletColors: [
+      '#059669', '#2563eb', '#7c3aed', '#f97316',
+      '#e11d48', '#0284c7', '#d97706', '#475569',
+      '#0d9488', '#9333ea', '#ea580c', '#4338ca'
+    ],
+
+    availableAccountIcons: [
+      'fa-building-columns', 'fa-credit-card', 'fa-wallet', 'fa-money-bill-1',
+      'fa-money-bill-wave', 'fa-coins', 'fa-mobile-screen-button', 'fa-piggy-bank',
+      'fa-chart-line', 'fa-vault', 'fa-landmark', 'fa-cash-register',
+      'fa-qrcode', 'fa-sack-dollar', 'fa-gem', 'fa-arrow-trend-up',
+      'fa-shield-halved', 'fa-briefcase', 'fa-scale-balanced', 'fa-network-wired'
+    ],
+
+    availableAccountColors: [
+      '#059669', '#2563eb', '#7c3aed', '#0284c7',
+      '#f97316', '#e11d48', '#d97706', '#475569',
+      '#0d9488', '#4f46e5', '#84cc16', '#ec4899',
+      '#6366f1', '#14b8a6'
+    ],
+
+    // Filter & Search
+    filterAccount: '',
+    filterCategory: '',
+    filterType: '', // 'ALL', 'PEMASUKAN', 'PENGELUARAN', 'PINDAH_DANA'
+    searchQuery: '',
+
+    // Filter Bulan / Periode Laporan
+    selectedMonth: new Date().getMonth(), // 0 - 11
+    selectedYear: new Date().getFullYear(),
+    isAllPeriod: false,
+    showMonthPickerModal: false,
+    tempPickerYear: new Date().getFullYear(),
+
+    monthNames: [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ],
+    monthNamesShort: [
+      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+    ],
+
+    // Modals
+    showTxnModal: false,
+    showTransferModal: false,
+    showAccountModal: false,
+    showCategoryModal: false,
+    showDetailModal: false,
+    showBudgetModal: false,
+    selectedDetailItem: null,
+    showMobileActionMenu: false,
+    categoryFilterType: 'ALL',
+
+    budgetForm: {
+      CategoryID: '',
+      NamaKategori: '',
+      Ikon: 'fa-utensils',
+      Warna: '#f97316',
+      spent: 0,
+      BudgetBulanan: ''
+    },
+
+    availableCategoryIcons: [
+      'fa-utensils', 'fa-cart-shopping', 'fa-car', 'fa-bolt', 'fa-gamepad', 
+      'fa-heart-pulse', 'fa-graduation-cap', 'fa-money-bill-wave', 'fa-gift', 
+      'fa-chart-line', 'fa-coins', 'fa-house', 'fa-plane', 'fa-briefcase', 
+      'fa-bag-shopping', 'fa-receipt', 'fa-tag', 'fa-mobile-screen', 'fa-film', 
+      'fa-hospital', 'fa-book', 'fa-shield', 'fa-dumbbell', 'fa-credit-card'
+    ],
+
+    availableCategoryColors: [
+      '#10b981', '#059669', '#0284c7', '#2563eb', '#7c3aed', 
+      '#ec4899', '#f97316', '#eab308', '#ef4444', '#64748b'
+    ],
+
+    categoryForm: {
+      CategoryID: '',
+      NamaKategori: '',
+      Tipe: 'PENGELUARAN',
+      Ikon: 'fa-utensils',
+      Warna: '#f97316',
+      BudgetBulanan: '',
+      Urutan: 1,
+      IsActive: 'TRUE'
+    },
+
+    isTxnTypeFixed: false,
+    txnItems: [
+      { id: 1, Nominal: '', CategoryID: '', Deskripsi: '' }
+    ],
+
+    get totalBatchNominal() {
+      if (!this.txnItems || this.txnItems.length === 0) return 0;
+      return this.txnItems.reduce((acc, item) => acc + (Number(item.Nominal) || 0), 0);
+    },
+
+    // Form Models
+    txnForm: {
+      TransactionID: '',
+      Tanggal: '',
+      TanggalDate: '',
+      TanggalTime: '',
+      TipeTransaksi: 'PENGELUARAN',
+      AccountID: '',
+      CategoryID: '',
+      Nominal: '',
+      Deskripsi: '',
+      BuktiUrl: ''
+    },
+
+    transferForm: {
+      TransferID: '',
+      Tanggal: '',
+      TanggalDate: '',
+      TanggalTime: '',
+      FromAccountID: '',
+      ToAccountID: '',
+      Nominal: '',
+      BiayaAdmin: 0,
+      Catatan: ''
+    },
+
+    accountForm: {
+      AccountID: '',
+      NamaAkun: '',
+      TipeAkun: 'BANK',
+      NomorAkun: '',
+      SaldoAwal: '',
+      Warna: '#059669',
+      Ikon: 'fa-building-columns'
+    },
+
+    // Master Storage (Mencakup Semua Dompet)
+    allAccounts: [],
+    allTransactions: [],
+    allTransfers: [],
+    allCategories: [],
+
+    // Active Views (Khusus Dompet Aktif)
+    accounts: [],
+    transactions: [],
+    transfers: [],
+    categories: [],
+    settings: {},
+
+    // Backup & Arsip Tahunan (Tutup Buku)
+    archiveYears: [],
+    archivesList: [],
+    selectedArchiveYear: null,
+    archiveData: null,
+    isLoadingArchive: false,
+    selectedYearToArchive: new Date().getFullYear() - 1,
+    isProcessingArchive: false,
+
+    // Laporan Keuangan (Operasional & Seluruh Keuangan)
+    reportType: 'operasional', // 'operasional' | 'komprehensif'
+    reportPeriodType: 'month', // 'month' | 'year' | 'all'
+    reportSelectedMonth: new Date().getMonth(),
+    reportSelectedYear: new Date().getFullYear(),
+    reportWalletId: 'CURRENT', // 'CURRENT' | 'ALL' | WalletID spesifik
+    reportSearchQuery: '',
+
+    // Pratinjau Cetak & Simpan PDF Laporan
+    showPrintPreviewModal: false,
+    isGeneratingPdf: false,
+    printOrientation: 'portrait', // 'portrait' | 'landscape'
+    printDocumentNumber: '',
+    printGeneratedDate: '',
+
+    // Pengaturan Kategori Terpilih Laporan Operasional
+    showReportCategoryModal: false,
+    reportSelectedCategoryIds: [],
+
+    // Catatan Laba Bulanan (Tarik ke Laporan Operasional)
+    monthlyProfits: [],
+    showMonthlyProfitModal: false,
+    monthlyProfitForm: {
+      id: '',
+      walletId: 'WLT-1',
+      month: new Date().getMonth(),
+      year: new Date().getFullYear(),
+      nominal: '',
+      catatan: ''
+    },
+
+    // Pengaturan Bagi Hasil (Profit Sharing) Laporan Operasional
+    showProfitSharingModal: false,
+    profitSharingConfig: {
+      isEnabled: true,
+      defaultNominal: 14000000,
+      modeByPeriod: {}, // key -> 'auto' | 'manual'
+      periodNominals: {},
+      shares: [
+        { id: 'share-1', name: 'Pihak 1 (Pengelola)', percent: 60 },
+        { id: 'share-2', name: 'Pihak 2 (Investor)', percent: 40 }
+      ]
+    },
+    profitSharingForm: {
+      nominal: 14000000,
+      mode: 'auto', // 'auto' | 'manual'
+      shares: [
+        { id: 'share-1', name: 'Pihak 1 (Pengelola)', percent: 60 },
+        { id: 'share-2', name: 'Pihak 2 (Investor)', percent: 40 }
+      ]
+    },
+
+    // Inisialisasi Aplikasi
+    async init() {
+      // Setup global print cleanup
+      window.addEventListener('afterprint', () => {
+        document.body.classList.remove('is-printing-report');
+      });
+
+      // 1. Theme Setup
+      const savedTheme = localStorage.getItem(THEME_KEY);
+      this.isDarkMode = savedTheme === 'dark';
+      this.applyTheme();
+
+      // 2. Load Current User Session & Login State
+      const loggedInFlag = localStorage.getItem('DOMPETKU_LOGGED_IN');
+      const savedUser = localStorage.getItem(USER_KEY);
+      if (loggedInFlag === 'true' && savedUser) {
+        try {
+          this.currentUser = JSON.parse(savedUser);
+          this.isLoggedIn = true;
+        } catch (e) {
+          console.error('Error parse user session', e);
+          this.isLoggedIn = false;
+        }
+      } else {
+        this.isLoggedIn = false;
+      }
+
+      // 3. Load Local Data First (Instant UI)
+      this.loadLocalData();
+      this.ensureAllWalletsSystemCategories();
+      this.syncTransferAdminTransactions();
+
+      // 4. Set Active Wallet
+      const savedWalletId = localStorage.getItem(ACTIVE_WALLET_KEY);
+      if (savedWalletId && this.wallets.some(w => w.WalletID === savedWalletId)) {
+        this.activeWalletId = savedWalletId;
+      } else if (this.wallets.length > 0) {
+        this.activeWalletId = this.wallets[0].WalletID;
+      }
+
+      // Verifikasi akses dompet user saat ini
+      if (!this.canAccessWallet(this.activeWalletId)) {
+        const firstAccessible = this.userAccessibleWallets[0];
+        if (firstAccessible) {
+          this.activeWalletId = firstAccessible.WalletID;
+        }
+      }
+
+      // Jika user bukan superadmin dan berada pada tab khusus superadmin (users/backup), kembalikan ke dashboard
+      if (!this.isSuperAdmin && (this.activeTab === 'users' || this.activeTab === 'backup')) {
+        this.activeTab = 'dashboard';
+      }
+
+      // 5. Refresh data tampilan untuk dompet yang aktif
+      this.refreshActiveWalletData();
+      this.syncReportFiltersWithActive();
+
+      // Setup Alpine Watchers untuk Sinkronisasi Filter Aktif
+      if (typeof this.$watch === 'function') {
+        this.$watch('selectedMonth', val => {
+          this.reportSelectedMonth = val;
+        });
+        this.$watch('selectedYear', val => {
+          this.reportSelectedYear = val;
+        });
+        this.$watch('activeWalletId', () => {
+          if (this.reportWalletId !== 'ALL' && !this.canAccessWallet(this.reportWalletId)) {
+            this.reportWalletId = 'CURRENT';
+          }
+        });
+        this.$watch('activeTab', tab => {
+          if (tab === 'reports') {
+            this.syncReportFiltersWithActive();
+          }
+        });
+      }
+
+      // 6. Sync from Cloud jika tersedia
+      await this.syncFromCloud();
+      await this.loadArchiveYears();
+
+      // 7. Reset Form Models
+      this.resetTxnForm();
+      this.resetTransferForm();
+      this.resetAccountForm();
+    },
+
+    applyTheme() {
+      if (this.isDarkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      localStorage.setItem(THEME_KEY, this.isDarkMode ? 'dark' : 'light');
+    },
+
+    toggleTheme() {
+      this.isDarkMode = !this.isDarkMode;
+      this.applyTheme();
+    },
+
+    // REFRESH DATA SESUAI DOMPET AKTIF
+    refreshActiveWalletData() {
+      const wId = this.activeWalletId;
+      
+      this.accounts = this.allAccounts.filter(a => (a.WalletID || 'WLT-1') === wId);
+
+      if (this.selectedArchiveYear && this.archiveData) {
+        this.transactions = (this.archiveData.transactions || []).filter(t => (t.WalletID || 'WLT-1') === wId);
+        this.transfers = (this.archiveData.transfers || []).filter(tr => (tr.WalletID || 'WLT-1') === wId);
+      } else {
+        this.transactions = this.allTransactions.filter(t => (t.WalletID || 'WLT-1') === wId);
+        this.transfers = this.allTransfers.filter(tr => (tr.WalletID || 'WLT-1') === wId);
+      }
+      
+      // Kategori: tampilkan kategori khusus dompet ini ATAU kategori global ('*')
+      this.categories = this.allCategories.filter(c => (!c.WalletID || c.WalletID === '*' || c.WalletID === wId));
+    },
+
+    // BERALIH DOMPET (SWITCH WALLET)
+    switchWallet(walletId) {
+      if (!this.canAccessWallet(walletId)) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Akses Ditolak',
+          text: 'Anda tidak memiliki hak akses untuk membuka dompet ini.'
+        });
+        return;
+      }
+
+      const targetWallet = this.wallets.find(w => w.WalletID === walletId);
+      if (!targetWallet) return;
+
+      this.activeWalletId = walletId;
+      localStorage.setItem(ACTIVE_WALLET_KEY, walletId);
+      
+      this.filterAccount = '';
+      this.filterCategory = '';
+      this.refreshActiveWalletData();
+
+      this.showWalletSwitcherDropdown = false;
+      this.showManageWalletsModal = false;
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Beralih Dompet!',
+        text: `Sekarang aktif di ${targetWallet.NamaDompet}.`,
+        timer: 1500,
+        showConfirmButton: false
+      });
+    },
+
+    // INISIALISASI DATA LOCALSTORAGE
+    loadLocalData() {
+      const stored = localStorage.getItem(CACHE_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          this.wallets = parsed.wallets || [];
+          this.users = parsed.users || [];
+          this.allAccounts = parsed.allAccounts || parsed.accounts || [];
+          this.allTransactions = parsed.allTransactions || parsed.transactions || [];
+          this.allTransfers = parsed.allTransfers || parsed.transfers || [];
+          this.allCategories = parsed.allCategories || parsed.categories || [];
+          this.settings = parsed.settings || {};
+          this.monthlyProfits = parsed.monthlyProfits || [];
+          this.reportSelectedCategoryIds = parsed.reportSelectedCategoryIds || [];
+          if (!this.reportSelectedCategoryIds || this.reportSelectedCategoryIds.length === 0) {
+            try {
+              const savedCats = localStorage.getItem('DOMPETKU_REPORT_SELECTED_CATS');
+              if (savedCats) this.reportSelectedCategoryIds = JSON.parse(savedCats);
+            } catch (e) {}
+          }
+
+          // Pastikan kategori operasional baku sistem (Operasional, Bagi Hasil, Admin Bank) tersedia di seluruh dompet
+          this.ensureAllWalletsSystemCategories();
+          this.syncTransferAdminTransactions();
+
+          if ((!this.monthlyProfits || this.monthlyProfits.length === 0) && this.settings) {
+            try {
+              let raw = null;
+              if (Array.isArray(this.settings)) {
+                const found = this.settings.find(s => s.SettingKey === 'MONTHLY_PROFITS');
+                if (found) raw = found.SettingValue;
+              } else if (this.settings.MONTHLY_PROFITS) {
+                raw = this.settings.MONTHLY_PROFITS;
+              }
+              if (raw) {
+                this.monthlyProfits = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              }
+            } catch (e) {}
+          }
+
+          // Muat konfigurasi bagi hasil dari local storage atau settings
+          try {
+            const savedSharing = localStorage.getItem('DOMPETKU_PROFIT_SHARING_CONFIG');
+            if (savedSharing) {
+              this.profitSharingConfig = JSON.parse(savedSharing);
+            } else if (parsed && parsed.profitSharingConfig) {
+              this.profitSharingConfig = parsed.profitSharingConfig;
+            } else if (this.settings) {
+              let rawSharing = null;
+              if (Array.isArray(this.settings)) {
+                const foundSharing = this.settings.find(s => s.SettingKey === 'PROFIT_SHARING_CONFIG');
+                if (foundSharing) rawSharing = foundSharing.SettingValue;
+              } else if (this.settings.PROFIT_SHARING_CONFIG) {
+                rawSharing = this.settings.PROFIT_SHARING_CONFIG;
+              }
+              if (rawSharing) {
+                this.profitSharingConfig = typeof rawSharing === 'string' ? JSON.parse(rawSharing) : rawSharing;
+              }
+            }
+          } catch (e) {}
+
+          if (!this.monthlyProfits || this.monthlyProfits.length === 0) {
+            this.seedDefaultMonthlyProfits();
+          }
+
+          // Pastikan data memiliki WalletID jika migrasi dari versi lama
+          this.allAccounts.forEach(a => { if (!a.WalletID) a.WalletID = 'WLT-1'; });
+          this.allTransactions.forEach(t => { if (!t.WalletID) t.WalletID = 'WLT-1'; });
+          this.allTransfers.forEach(tr => { if (!tr.WalletID) tr.WalletID = 'WLT-1'; });
+          this.allCategories.forEach(c => { if (!c.WalletID) c.WalletID = '*'; });
+
+          if (this.wallets.length === 0) {
+            this.seedDefaultWallets();
+          }
+          if (this.users.length === 0) {
+            this.seedDefaultUsers();
+          }
+
+          this.ensureAllWalletsSystemCategories();
+          this.syncTransferAdminTransactions();
+          return;
+        } catch (e) {
+          console.error('Error parse local storage', e);
+        }
+      }
+
+      // Default Seed Data Lengkap (Multi-Dompet & Multi-User)
+      this.seedDefaultWallets();
+      this.seedDefaultUsers();
+      this.seedDefaultFinancialData();
+      this.ensureAllWalletsSystemCategories();
+      this.syncTransferAdminTransactions();
+    },
+
+    // ===== SYSTEM CATEGORIES (KATEGORI BAKU SISTEM) =====
+    isSystemCategory(cat) {
+      if (!cat) return false;
+      if (String(cat.IsSystem).toUpperCase() === 'TRUE') return true;
+      const n = (cat.NamaKategori || '').trim().toLowerCase();
+      return n === 'operasional' || n === 'bagi hasil' || n === 'admin bank' ||
+             n === 'biaya admin' || n === 'biaya admin bank' || n === 'biaya admin transfer';
+    },
+
+    getAdminBankCategory(walletId) {
+      const wId = walletId || this.activeWalletId || 'WLT-1';
+      let cat = this.allCategories.find(c => {
+        if (c.Tipe !== 'PENGELUARAN') return false;
+        if (c.WalletID !== wId && c.WalletID !== '*') return false;
+        const n = (c.NamaKategori || '').trim().toLowerCase();
+        return n === 'admin bank' || n.includes('admin');
+      });
+      if (!cat) {
+        cat = {
+          CategoryID: 'CAT-' + wId + '-SYS-ADM',
+          WalletID: wId,
+          NamaKategori: 'Admin Bank',
+          Tipe: 'PENGELUARAN',
+          Ikon: 'fa-receipt',
+          Warna: '#64748b',
+          BudgetBulanan: 100000,
+          Urutan: 99,
+          IsActive: 'TRUE',
+          IsSystem: 'TRUE'
+        };
+        this.allCategories.push(cat);
+        this.saveLocalData();
+      }
+      return cat;
+    },
+
+    ensureWalletSystemCategories(walletId) {
+      const wId = walletId || this.activeWalletId || 'WLT-1';
+      if (!wId) return;
+
+      const sysDefs = [
+        { key: 'operasional', name: 'Operasional', icon: 'fa-briefcase', color: '#0284c7', budget: 1000000 },
+        { key: 'bagi_hasil', name: 'Bagi Hasil', icon: 'fa-hand-holding-dollar', color: '#0d9488', budget: 1000000 },
+        { key: 'admin_bank', name: 'Admin Bank', icon: 'fa-receipt', color: '#64748b', budget: 100000 }
+      ];
+
+      let changed = false;
+      sysDefs.forEach((def, idx) => {
+        let existing = this.allCategories.find(c => {
+          if (c.Tipe !== 'PENGELUARAN') return false;
+          if (c.WalletID !== wId && c.WalletID !== '*') return false;
+          const n = (c.NamaKategori || '').trim().toLowerCase();
+          if (def.key === 'operasional') return n === 'operasional' || n.startsWith('operasional');
+          if (def.key === 'bagi_hasil') return n === 'bagi hasil' || n.includes('bagi hasil') || n.includes('dividen') || n.includes('profit sharing');
+          if (def.key === 'admin_bank') return n === 'admin bank' || n.includes('admin');
+          return false;
+        });
+
+        if (existing) {
+          existing.IsSystem = 'TRUE';
+          if (def.key === 'admin_bank' && existing.NamaKategori !== 'Admin Bank') {
+            existing.NamaKategori = 'Admin Bank';
+            changed = true;
+          } else if (def.key === 'operasional' && (existing.NamaKategori === 'Operasional & Toko' || existing.NamaKategori === 'Operasional & Listrik Toko')) {
+            existing.NamaKategori = 'Operasional';
+            changed = true;
+          } else if (def.key === 'bagi_hasil' && (existing.NamaKategori === 'Bagi Hasil & Dividen' || existing.NamaKategori === 'Bagi Hasil / Dividen' || existing.NamaKategori === 'Bagi Hasil & Investasi')) {
+            existing.NamaKategori = 'Bagi Hasil';
+            changed = true;
+          }
+        } else {
+          this.allCategories.push({
+            CategoryID: `CAT-${wId}-SYS-${def.key.toUpperCase()}`,
+            WalletID: wId,
+            NamaKategori: def.name,
+            Tipe: 'PENGELUARAN',
+            Ikon: def.icon,
+            Warna: def.color,
+            BudgetBulanan: def.budget,
+            Urutan: 90 + idx,
+            IsActive: 'TRUE',
+            IsSystem: 'TRUE'
+          });
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        this.saveLocalData();
+      }
+    },
+
+    ensureAllWalletsSystemCategories() {
+      const walletList = (this.wallets && this.wallets.length > 0) ? this.wallets : [{ WalletID: 'WLT-1' }, { WalletID: 'WLT-2' }];
+      walletList.forEach(w => {
+        this.ensureWalletSystemCategories(w.WalletID);
+      });
+    },
+
+    syncTransferAdminTransactions() {
+      if (!this.allTransfers || !Array.isArray(this.allTransfers)) return;
+      let updated = false;
+
+      this.allTransfers.forEach(tr => {
+        const fee = Number(tr.BiayaAdmin) || 0;
+        const admTxnId = 'TXN-ADM-' + tr.TransferID;
+        const existingTxn = this.allTransactions.find(t => t.TransactionID === admTxnId);
+
+        if (fee > 0) {
+          const wId = tr.WalletID || 'WLT-1';
+          const adminCat = this.getAdminBankCategory(wId);
+          const catId = adminCat ? adminCat.CategoryID : 'CAT-OUT-7';
+          const fromAcc = this.allAccounts.find(a => a.AccountID === tr.FromAccountID);
+          const toAcc = this.allAccounts.find(a => a.AccountID === tr.ToAccountID);
+          const fromName = fromAcc ? fromAcc.NamaAkun : 'Akun Asal';
+          const toName = toAcc ? toAcc.NamaAkun : 'Akun Tujuan';
+          const desc = `Biaya Admin Transfer (${fromName} → ${toName})`;
+
+          if (existingTxn) {
+            if (Number(existingTxn.Nominal) !== fee || existingTxn.CategoryID !== catId || existingTxn.AccountID !== tr.FromAccountID) {
+              existingTxn.Nominal = fee;
+              existingTxn.CategoryID = catId;
+              existingTxn.AccountID = tr.FromAccountID;
+              existingTxn.Tanggal = tr.Tanggal;
+              existingTxn.WalletID = wId;
+              existingTxn.Deskripsi = desc;
+              existingTxn.IsSystem = 'TRUE';
+              existingTxn.IsTransferAdmin = true;
+              updated = true;
+            }
+          } else {
+            this.allTransactions.push({
+              TransactionID: admTxnId,
+              WalletID: wId,
+              Tanggal: tr.Tanggal,
+              TipeTransaksi: 'PENGELUARAN',
+              AccountID: tr.FromAccountID,
+              CategoryID: catId,
+              Nominal: fee,
+              Deskripsi: desc,
+              BuktiUrl: '',
+              KasirUsername: tr.KasirUsername || 'superadmin',
+              IsSystem: 'TRUE',
+              IsTransferAdmin: true
+            });
+            updated = true;
+          }
+        } else if (fee === 0 && existingTxn) {
+          this.allTransactions = this.allTransactions.filter(t => t.TransactionID !== admTxnId);
+          updated = true;
+        }
+      });
+
+      if (updated) {
+        this.saveLocalData();
+      }
+    },
+
+    seedDefaultWallets() {
+      this.wallets = [
+        {
+          WalletID: 'WLT-1',
+          NamaDompet: 'Dompet Pribadi',
+          Deskripsi: 'Keuangan Sehari-hari & Personal',
+          Ikon: 'fa-wallet',
+          Warna: '#059669',
+          OwnerUserID: 'superadmin',
+          IsActive: 'TRUE',
+          CreatedAt: '01/10/2026'
+        },
+        {
+          WalletID: 'WLT-2',
+          NamaDompet: 'Bisnis & Toko',
+          Deskripsi: 'Operasional Toko & Penjualan',
+          Ikon: 'fa-shop',
+          Warna: '#2563eb',
+          OwnerUserID: 'superadmin',
+          IsActive: 'TRUE',
+          CreatedAt: '01/10/2026'
+        }
+      ];
+    },
+
+    seedDefaultUsers() {
+      this.users = [
+        {
+          UserID: 'USR-1',
+          Username: 'superadmin',
+          Role: 'superadmin',
+          FullName: 'Super Administrator',
+          Password: 'admin123',
+          Pin: '123456',
+          IsActive: 'TRUE',
+          AssignedWallets: '*'
+        },
+        {
+          UserID: 'USR-2',
+          Username: 'manajer_toko',
+          Role: 'admin',
+          FullName: 'Manajer Toko',
+          Password: 'toko123',
+          Pin: '123456',
+          IsActive: 'TRUE',
+          AssignedWallets: 'WLT-2'
+        },
+        {
+          UserID: 'USR-3',
+          Username: 'kasir_pribadi',
+          Role: 'user',
+          FullName: 'Kasir Pribadi',
+          Password: 'kasir123',
+          Pin: '123456',
+          IsActive: 'TRUE',
+          AssignedWallets: 'WLT-1'
+        },
+        {
+          UserID: 'USR-4',
+          Username: 'kasir_toko',
+          Role: 'user',
+          FullName: 'Kasir Toko',
+          Password: 'toko123',
+          Pin: '123456',
+          IsActive: 'TRUE',
+          AssignedWallets: 'WLT-2'
+        }
+      ];
+    },
+
+    seedDefaultFinancialData() {
+      // 1. Akun untuk Dompet Pribadi (WLT-1) & Bisnis (WLT-2)
+      this.allAccounts = [
+        // Dompet Pribadi (WLT-1)
+        { AccountID: 'ACC-1', WalletID: 'WLT-1', NamaAkun: 'Dompet Tunai', TipeAkun: 'TUNAI', NomorAkun: 'Uang Fisik', SaldoAwal: 500000, SaldoSekarang: 425000, Warna: '#059669', Ikon: 'fa-wallet', IsActive: 'TRUE' },
+        { AccountID: 'ACC-2', WalletID: 'WLT-1', NamaAkun: 'BCA Utama', TipeAkun: 'BANK', NomorAkun: '1234-5678-90', SaldoAwal: 5000000, SaldoSekarang: 6850000, Warna: '#2563eb', Ikon: 'fa-building-columns', IsActive: 'TRUE' },
+        { AccountID: 'ACC-3', WalletID: 'WLT-1', NamaAkun: 'GoPay & DANA', TipeAkun: 'EWALLET', NomorAkun: '0812-3456-7890', SaldoAwal: 250000, SaldoSekarang: 380000, Warna: '#0284c7', Ikon: 'fa-mobile-screen', IsActive: 'TRUE' },
+        { AccountID: 'ACC-4', WalletID: 'WLT-1', NamaAkun: 'Investasi Bibit', TipeAkun: 'INVESTASI', NomorAkun: 'Bibit Portofolio', SaldoAwal: 10000000, SaldoSekarang: 10500000, Warna: '#7c3aed', Ikon: 'fa-chart-line', IsActive: 'TRUE' },
+        // Bisnis & Toko (WLT-2)
+        { AccountID: 'ACC-B1', WalletID: 'WLT-2', NamaAkun: 'Kas Tunai Toko', TipeAkun: 'TUNAI', NomorAkun: 'Laci Kasir Toko', SaldoAwal: 1500000, SaldoSekarang: 1720000, Warna: '#059669', Ikon: 'fa-cash-register', IsActive: 'TRUE' },
+        { AccountID: 'ACC-B2', WalletID: 'WLT-2', NamaAkun: 'Mandiri Bisnis', TipeAkun: 'BANK', NomorAkun: '9876-5432-10', SaldoAwal: 14800000, SaldoSekarang: 16200000, Warna: '#2563eb', Ikon: 'fa-building-columns', IsActive: 'TRUE' },
+        { AccountID: 'ACC-B3', WalletID: 'WLT-2', NamaAkun: 'QRIS Merchant', TipeAkun: 'EWALLET', NomorAkun: '0899-1234-567', SaldoAwal: 3200000, SaldoSekarang: 4150000, Warna: '#0284c7', Ikon: 'fa-qrcode', IsActive: 'TRUE' }
+      ];
+
+      // 2. Kategori Dompet Pribadi & Bisnis
+      this.allCategories = [
+        // Kategori Pribadi (WLT-1)
+        { CategoryID: 'CAT-IN-1', WalletID: 'WLT-1', NamaKategori: 'Gaji Bulanan', Tipe: 'PEMASUKAN', Ikon: 'fa-money-bill-wave', Warna: '#10b981', BudgetBulanan: 0, Urutan: 1, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-IN-2', WalletID: 'WLT-1', NamaKategori: 'Bonus & Freelance', Tipe: 'PEMASUKAN', Ikon: 'fa-gift', Warna: '#059669', BudgetBulanan: 0, Urutan: 2, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-IN-3', WalletID: 'WLT-1', NamaKategori: 'Hasil Investasi', Tipe: 'PEMASUKAN', Ikon: 'fa-arrow-trend-up', Warna: '#10b981', BudgetBulanan: 0, Urutan: 3, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-OUT-1', WalletID: 'WLT-1', NamaKategori: 'Makanan & Kopi', Tipe: 'PENGELUARAN', Ikon: 'fa-utensils', Warna: '#f97316', BudgetBulanan: 1800000, Urutan: 4, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-OUT-2', WalletID: 'WLT-1', NamaKategori: 'Transport & Bensin', Tipe: 'PENGELUARAN', Ikon: 'fa-car', Warna: '#0284c7', BudgetBulanan: 500000, Urutan: 5, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-OUT-3', WalletID: 'WLT-1', NamaKategori: 'Belanja Bulanan', Tipe: 'PENGELUARAN', Ikon: 'fa-cart-shopping', Warna: '#e11d48', BudgetBulanan: 1200000, Urutan: 6, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-OUT-4', WalletID: 'WLT-1', NamaKategori: 'Tagihan & Langganan', Tipe: 'PENGELUARAN', Ikon: 'fa-bolt', Warna: '#eab308', BudgetBulanan: 750000, Urutan: 7, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-OUT-5', WalletID: 'WLT-1', NamaKategori: 'Hiburan & Hobi', Tipe: 'PENGELUARAN', Ikon: 'fa-gamepad', Warna: '#8b5cf6', BudgetBulanan: 400000, Urutan: 8, IsActive: 'TRUE' },
+        // Kategori Sistem Baku WLT-1
+        { CategoryID: 'CAT-OUT-SYS-1', WalletID: 'WLT-1', NamaKategori: 'Operasional', Tipe: 'PENGELUARAN', Ikon: 'fa-briefcase', Warna: '#0284c7', BudgetBulanan: 500000, Urutan: 9, IsActive: 'TRUE', IsSystem: 'TRUE' },
+        { CategoryID: 'CAT-OUT-SYS-2', WalletID: 'WLT-1', NamaKategori: 'Bagi Hasil', Tipe: 'PENGELUARAN', Ikon: 'fa-hand-holding-dollar', Warna: '#0d9488', BudgetBulanan: 500000, Urutan: 10, IsActive: 'TRUE', IsSystem: 'TRUE' },
+        { CategoryID: 'CAT-OUT-7', WalletID: 'WLT-1', NamaKategori: 'Admin Bank', Tipe: 'PENGELUARAN', Ikon: 'fa-receipt', Warna: '#64748b', BudgetBulanan: 50000, Urutan: 11, IsActive: 'TRUE', IsSystem: 'TRUE' },
+        // Kategori Bisnis Toko (WLT-2)
+        { CategoryID: 'CAT-B-IN-1', WalletID: 'WLT-2', NamaKategori: 'Penjualan Produk', Tipe: 'PEMASUKAN', Ikon: 'fa-bag-shopping', Warna: '#10b981', BudgetBulanan: 0, Urutan: 1, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-B-IN-2', WalletID: 'WLT-2', NamaKategori: 'Jasa & Konsultasi', Tipe: 'PEMASUKAN', Ikon: 'fa-handshake', Warna: '#059669', BudgetBulanan: 0, Urutan: 2, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-B-OUT-1', WalletID: 'WLT-2', NamaKategori: 'Kulakan & Stok Barang', Tipe: 'PENGELUARAN', Ikon: 'fa-boxes-stacked', Warna: '#e11d48', BudgetBulanan: 10000000, Urutan: 3, IsActive: 'TRUE' },
+        // Kategori Sistem Baku WLT-2
+        { CategoryID: 'CAT-B-OUT-2', WalletID: 'WLT-2', NamaKategori: 'Operasional', Tipe: 'PENGELUARAN', Ikon: 'fa-briefcase', Warna: '#0284c7', BudgetBulanan: 1500000, Urutan: 4, IsActive: 'TRUE', IsSystem: 'TRUE' },
+        { CategoryID: 'CAT-B-OUT-3', WalletID: 'WLT-2', NamaKategori: 'Gaji Karyawan', Tipe: 'PENGELUARAN', Ikon: 'fa-users', Warna: '#8b5cf6', BudgetBulanan: 4000000, Urutan: 5, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-B-OUT-4', WalletID: 'WLT-2', NamaKategori: 'Promosi & Iklan', Tipe: 'PENGELUARAN', Ikon: 'fa-bullhorn', Warna: '#f97316', BudgetBulanan: 1000000, Urutan: 6, IsActive: 'TRUE' },
+        { CategoryID: 'CAT-B-OUT-5', WalletID: 'WLT-2', NamaKategori: 'Admin Bank', Tipe: 'PENGELUARAN', Ikon: 'fa-receipt', Warna: '#64748b', BudgetBulanan: 100000, Urutan: 7, IsActive: 'TRUE', IsSystem: 'TRUE' },
+        { CategoryID: 'CAT-B-OUT-6', WalletID: 'WLT-2', NamaKategori: 'Bagi Hasil', Tipe: 'PENGELUARAN', Ikon: 'fa-hand-holding-dollar', Warna: '#0d9488', BudgetBulanan: 2500000, Urutan: 8, IsActive: 'TRUE', IsSystem: 'TRUE' }
+      ];
+
+      // 3. Transaksi Demo Dompet Pribadi (WLT-1) & Bisnis (WLT-2)
+      this.allTransactions = [
+        // WLT-1
+        { TransactionID: 'TXN-101', WalletID: 'WLT-1', Tanggal: '01/10/2026 09:00', TipeTransaksi: 'PEMASUKAN', AccountID: 'ACC-2', CategoryID: 'CAT-IN-1', Nominal: 6000000, Deskripsi: 'Gaji Bulanan Oktober', BuktiUrl: '', KasirUsername: 'superadmin' },
+        { TransactionID: 'TXN-102', WalletID: 'WLT-1', Tanggal: '02/10/2026 13:15', TipeTransaksi: 'PENGELUARAN', AccountID: 'ACC-1', CategoryID: 'CAT-OUT-1', Nominal: 75000, Deskripsi: 'Makan siang & es kopi', BuktiUrl: '', KasirUsername: 'superadmin' },
+        { TransactionID: 'TXN-103', WalletID: 'WLT-1', Tanggal: '03/10/2026 19:40', TipeTransaksi: 'PENGELUARAN', AccountID: 'ACC-2', CategoryID: 'CAT-OUT-4', Nominal: 350000, Deskripsi: 'Bayar Listrik & Internet WiFi', BuktiUrl: '', KasirUsername: 'superadmin' },
+        // WLT-2
+        { TransactionID: 'TXN-B201', WalletID: 'WLT-2', Tanggal: '02/10/2026 10:30', TipeTransaksi: 'PEMASUKAN', AccountID: 'ACC-B3', CategoryID: 'CAT-B-IN-1', Nominal: 3500000, Deskripsi: 'Penjualan Grosir Toko via QRIS', BuktiUrl: '', KasirUsername: 'kasir' },
+        { TransactionID: 'TXN-B202', WalletID: 'WLT-2', Tanggal: '04/10/2026 14:00', TipeTransaksi: 'PENGELUARAN', AccountID: 'ACC-B2', CategoryID: 'CAT-B-OUT-1', Nominal: 2100000, Deskripsi: 'Restock Kulakan Barang Grosir', BuktiUrl: '', KasirUsername: 'admin' },
+        { TransactionID: 'TXN-B203', WalletID: 'WLT-2', Tanggal: '05/10/2026 17:45', TipeTransaksi: 'PENGELUARAN', AccountID: 'ACC-B1', CategoryID: 'CAT-B-OUT-2', Nominal: 280000, Deskripsi: 'Kebersihan & Listrik Ruko Toko', BuktiUrl: '', KasirUsername: 'kasir' },
+        { TransactionID: 'TXN-B204', WalletID: 'WLT-2', Tanggal: '06/10/2026 10:00', TipeTransaksi: 'PENGELUARAN', AccountID: 'ACC-B2', CategoryID: 'CAT-B-OUT-3', Nominal: 3500000, Deskripsi: 'Gaji Karyawan Toko Bulan Oktober', BuktiUrl: '', KasirUsername: 'admin' },
+        { TransactionID: 'TXN-B205', WalletID: 'WLT-2', Tanggal: '07/10/2026 14:15', TipeTransaksi: 'PENGELUARAN', AccountID: 'ACC-B3', CategoryID: 'CAT-B-OUT-5', Nominal: 35000, Deskripsi: 'Biaya Admin Bank & Fee EDC', BuktiUrl: '', KasirUsername: 'kasir' },
+        { TransactionID: 'TXN-B206', WalletID: 'WLT-2', Tanggal: '08/10/2026 16:30', TipeTransaksi: 'PENGELUARAN', AccountID: 'ACC-B2', CategoryID: 'CAT-B-OUT-6', Nominal: 1200000, Deskripsi: 'Bagi Hasil Mitra Pengelola Toko', BuktiUrl: '', KasirUsername: 'admin' }
+      ];
+
+      // 4. Transfer Demo
+      this.allTransfers = [
+        { TransferID: 'TRF-301', WalletID: 'WLT-1', Tanggal: '04/10/2026 11:20', FromAccountID: 'ACC-2', ToAccountID: 'ACC-3', Nominal: 200000, BiayaAdmin: 1000, TotalKeluar: 201000, Catatan: 'Top up saldo GoPay dari BCA', KasirUsername: 'superadmin' },
+        { TransferID: 'TRF-B401', WalletID: 'WLT-2', Tanggal: '06/10/2026 16:00', FromAccountID: 'ACC-B1', ToAccountID: 'ACC-B2', Nominal: 500000, BiayaAdmin: 0, TotalKeluar: 500000, Catatan: 'Setor Kas Tunai Toko ke Rekening Bisnis', KasirUsername: 'admin' }
+      ];
+
+      // 5. Catatan Laba Bulanan Demo
+      this.seedDefaultMonthlyProfits();
+
+      this.saveLocalData();
+    },
+
+    seedDefaultMonthlyProfits() {
+      const curYear = new Date().getFullYear();
+      const curMonth = new Date().getMonth();
+      this.monthlyProfits = [
+        {
+          id: 'PRF-DEMO-1',
+          walletId: 'WLT-1',
+          month: curMonth,
+          year: curYear,
+          nominal: 15000000,
+          catatan: 'Catatan Laba Usaha & Pribadi Bulan Berjalan',
+          updatedAt: '01/10/2026 09:00'
+        },
+        {
+          id: 'PRF-DEMO-2',
+          walletId: 'WLT-2',
+          month: curMonth,
+          year: curYear,
+          nominal: 28000000,
+          catatan: 'Estimasi Laba Penjualan Toko & Grosir',
+          updatedAt: '01/10/2026 10:00'
+        }
+      ];
+    },
+
+    saveLocalData() {
+      const payload = {
+        wallets: this.wallets,
+        users: this.users,
+        allAccounts: this.allAccounts,
+        allTransactions: this.allTransactions,
+        allTransfers: this.allTransfers,
+        allCategories: this.allCategories,
+        settings: this.settings,
+        monthlyProfits: this.monthlyProfits,
+        reportSelectedCategoryIds: this.reportSelectedCategoryIds,
+        profitSharingConfig: this.profitSharingConfig
+      };
+      localStorage.setItem('DOMPETKU_REPORT_SELECTED_CATS', JSON.stringify(this.reportSelectedCategoryIds));
+      localStorage.setItem('DOMPETKU_PROFIT_SHARING_CONFIG', JSON.stringify(this.profitSharingConfig));
+      localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+    },
+
+    async syncFromCloud() {
+      try {
+        const res = await runApi('getAllData', [this.isSuperAdmin || this.isAdminOrSuper]);
+        if (res && res.wallets && res.wallets.length > 0) {
+          this.wallets = res.wallets;
+          if (res.users && res.users.length > 0) {
+            this.users = res.users;
+          }
+          this.allAccounts = res.accounts || [];
+          this.allTransactions = res.transactions || [];
+          this.allTransfers = res.transfers || [];
+          this.allCategories = res.categories || [];
+          this.settings = res.settings || {};
+          try {
+            let raw = null;
+            if (Array.isArray(this.settings)) {
+              const found = this.settings.find(s => s.SettingKey === 'MONTHLY_PROFITS');
+              if (found) raw = found.SettingValue;
+            } else if (this.settings.MONTHLY_PROFITS) {
+              raw = this.settings.MONTHLY_PROFITS;
+            }
+            if (raw) {
+              this.monthlyProfits = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            }
+          } catch (e) {}
+
+          try {
+            let rawSharing = null;
+            if (Array.isArray(this.settings)) {
+              const foundSharing = this.settings.find(s => s.SettingKey === 'PROFIT_SHARING_CONFIG');
+              if (foundSharing) rawSharing = foundSharing.SettingValue;
+            } else if (this.settings.PROFIT_SHARING_CONFIG) {
+              rawSharing = this.settings.PROFIT_SHARING_CONFIG;
+            }
+            if (rawSharing) {
+              this.profitSharingConfig = typeof rawSharing === 'string' ? JSON.parse(rawSharing) : rawSharing;
+            }
+          } catch (e) {}
+          this.backendStatus = 'connected';
+          
+          this.ensureAllWalletsSystemCategories();
+          this.syncTransferAdminTransactions();
+          this.refreshActiveWalletData();
+          this.saveLocalData();
+          await this.loadArchiveYears();
+        } else {
+          this.backendStatus = 'local';
+          await this.loadArchiveYears();
+        }
+      } catch (err) {
+        console.warn('Gagal sync backend Apps Script, mode offline aktif:', err);
+        this.backendStatus = 'local';
+        await this.loadArchiveYears();
+      }
+    },
+
+    // ================= GETTERS ROLE & OTORISASI =================
+    get isSuperAdmin() {
+      return this.currentUser && this.currentUser.Role === 'superadmin';
+    },
+
+    get isAdminOrSuper() {
+      return this.currentUser && (this.currentUser.Role === 'superadmin' || this.currentUser.Role === 'admin');
+    },
+
+    get isUserRole() {
+      return this.currentUser && this.currentUser.Role === 'user';
+    },
+
+    get canManageWallets() {
+      return !!this.currentUser;
+    },
+
+    get canCreateWallet() {
+      return this.isSuperAdmin; // Hanya Super Administrator yang dapat membuat dompet baru
+    },
+
+    get canEditWallet() {
+      return !!this.currentUser;
+    },
+
+    get canDeleteWallet() {
+      // Khusus untuk role 'user', tidak boleh hapus dompet
+      return this.isAdminOrSuper;
+    },
+
+    get canDeleteAccount() {
+      // Khusus untuk role 'user', tidak boleh hapus akun
+      return this.isAdminOrSuper;
+    },
+
+    get canDeleteCategory() {
+      // Khusus untuk role 'user', tidak boleh hapus kategori
+      return this.isAdminOrSuper;
+    },
+
+    get canSwitchProfile() {
+      return this.isSuperAdmin;
+    },
+
+    get hasMultipleWallets() {
+      return this.isSuperAdmin || this.userAccessibleWallets.length > 1;
+    },
+
+    canAccessWallet(walletId) {
+      if (this.isSuperAdmin) return true;
+      if (!this.currentUser || !this.currentUser.AssignedWallets) return false;
+      if (this.currentUser.AssignedWallets === '*') return true;
+      const allowed = this.currentUser.AssignedWallets.split(',').map(s => s.trim());
+      return allowed.includes(walletId);
+    },
+
+    get userAccessibleWallets() {
+      return this.wallets.filter(w => this.canAccessWallet(w.WalletID));
+    },
+
+    get displayedWallets() {
+      return this.isSuperAdmin ? this.wallets : this.userAccessibleWallets;
+    },
+
+    get activeWallet() {
+      return this.wallets.find(w => w.WalletID === this.activeWalletId) || this.wallets[0] || {
+        WalletID: 'WLT-1',
+        NamaDompet: 'Dompet Utama',
+        Ikon: 'fa-wallet',
+        Warna: '#059669',
+        Deskripsi: ''
+      };
+    },
+
+    getWalletNetWorth(walletId) {
+      return this.allAccounts
+        .filter(a => (a.WalletID || 'WLT-1') === walletId && String(a.IsActive).toUpperCase() === 'TRUE')
+        .reduce((sum, a) => sum + (Number(a.SaldoSekarang) || 0), 0);
+    },
+
+    getWalletAccountCount(walletId) {
+      return this.allAccounts.filter(a => (a.WalletID || 'WLT-1') === walletId).length;
+    },
+
+    getWalletTxnCount(walletId) {
+      return this.allTransactions.filter(t => (t.WalletID || 'WLT-1') === walletId).length;
+    },
+
+    // User Management Getters
+    get superAdminCount() {
+      return this.users.filter(u => u.Role === 'superadmin').length;
+    },
+
+    get adminCount() {
+      return this.users.filter(u => u.Role === 'admin').length;
+    },
+
+    get regularUserCount() {
+      return this.users.filter(u => u.Role === 'user').length;
+    },
+
+    get activeUserCount() {
+      return this.users.filter(u => String(u.IsActive).toUpperCase() === 'TRUE').length;
+    },
+
+    get filteredUsers() {
+      let list = this.users;
+      if (this.userRoleFilter && this.userRoleFilter !== 'ALL') {
+        list = list.filter(u => u.Role === this.userRoleFilter);
+      }
+      if (this.userSearchQuery && this.userSearchQuery.trim() !== '') {
+        const q = this.userSearchQuery.toLowerCase();
+        list = list.filter(u => 
+          (u.FullName && u.FullName.toLowerCase().includes(q)) ||
+          (u.Username && u.Username.toLowerCase().includes(q))
+        );
+      }
+      return list;
+    },
+
+    // ================= GETTERS CADANGAN & ARSIP =================
+    get availableYearsInActiveData() {
+      const yearsSet = new Set();
+      const currentY = new Date().getFullYear();
+      yearsSet.add(currentY);
+      if (this.selectedYear) yearsSet.add(Number(this.selectedYear));
+      if (this.reportSelectedYear) yearsSet.add(Number(this.reportSelectedYear));
+      this.allTransactions.forEach(t => {
+        const y = this.extractYearFromStr(t.Tanggal);
+        if (y) yearsSet.add(y);
+      });
+      this.allTransfers.forEach(tr => {
+        const y = this.extractYearFromStr(tr.Tanggal);
+        if (y) yearsSet.add(y);
+      });
+      return Array.from(yearsSet).sort((a, b) => b - a);
+    },
+
+    get archiveSummaryForSelectedYear() {
+      const y = Number(this.selectedYearToArchive);
+      const txnCount = this.allTransactions.filter(t => this.extractYearFromStr(t.Tanggal) === y).length;
+      const trfCount = this.allTransfers.filter(tr => this.extractYearFromStr(tr.Tanggal) === y).length;
+      return { txnCount, trfCount, year: y };
+    },
+
+    // ================= GETTERS LAPORAN KEUANGAN =================
+    get reportAccessibleWallets() {
+      if (this.isSuperAdmin) {
+        return this.wallets;
+      }
+      return this.userAccessibleWallets;
+    },
+
+    get reportEffectiveWalletId() {
+      if (this.reportWalletId === 'CURRENT') return this.activeWalletId;
+      if (!this.isSuperAdmin) {
+        if (this.reportWalletId === 'ALL' || !this.canAccessWallet(this.reportWalletId)) {
+          return this.activeWalletId;
+        }
+      }
+      return this.reportWalletId;
+    },
+
+    get reportWalletName() {
+      const effId = this.reportEffectiveWalletId;
+      if (effId === 'ALL' && this.isSuperAdmin) {
+        return 'Konsolidasi Seluruh Dompet (*)';
+      }
+      const found = this.wallets.find(w => w.WalletID === effId);
+      return found?.NamaDompet || this.activeWallet?.NamaDompet || 'Dompet Aktif';
+    },
+
+    get reportPeriodLabel() {
+      if (this.reportPeriodType === 'month') {
+        return `${this.monthNames[this.reportSelectedMonth]} ${this.reportSelectedYear}`;
+      }
+      if (this.reportPeriodType === 'year') {
+        return `Tahun ${this.reportSelectedYear} (1 Tahun Penuh)`;
+      }
+      return 'Seluruh Periode';
+    },
+
+    get reportFilteredTransactions() {
+      let list = this.allTransactions;
+
+      const wId = this.reportEffectiveWalletId;
+      if (wId !== 'ALL') {
+        list = list.filter(t => (t.WalletID || 'WLT-1') === wId);
+      }
+
+      if (this.reportPeriodType === 'month') {
+        list = list.filter(t => {
+          const d = this.parseDateString(t.Tanggal);
+          return !isNaN(d.getTime()) && d.getMonth() === this.reportSelectedMonth && d.getFullYear() === this.reportSelectedYear;
+        });
+      } else if (this.reportPeriodType === 'year') {
+        list = list.filter(t => {
+          const d = this.parseDateString(t.Tanggal);
+          return !isNaN(d.getTime()) && d.getFullYear() === this.reportSelectedYear;
+        });
+      }
+
+      if (this.reportSearchQuery && this.reportSearchQuery.trim() !== '') {
+        const q = this.reportSearchQuery.toLowerCase();
+        list = list.filter(t => 
+          (t.Deskripsi && t.Deskripsi.toLowerCase().includes(q)) ||
+          (t.KasirUsername && t.KasirUsername.toLowerCase().includes(q))
+        );
+      }
+
+      return list.sort((a, b) => this.parseDateString(b.Tanggal) - this.parseDateString(a.Tanggal));
+    },
+
+    get reportFilteredTransfers() {
+      let list = this.allTransfers;
+
+      const wId = this.reportEffectiveWalletId;
+      if (wId !== 'ALL') {
+        list = list.filter(tr => (tr.WalletID || 'WLT-1') === wId);
+      }
+
+      if (this.reportPeriodType === 'month') {
+        list = list.filter(tr => {
+          const d = this.parseDateString(tr.Tanggal);
+          return !isNaN(d.getTime()) && d.getMonth() === this.reportSelectedMonth && d.getFullYear() === this.reportSelectedYear;
+        });
+      } else if (this.reportPeriodType === 'year') {
+        list = list.filter(tr => {
+          const d = this.parseDateString(tr.Tanggal);
+          return !isNaN(d.getTime()) && d.getFullYear() === this.reportSelectedYear;
+        });
+      }
+
+      return list.sort((a, b) => this.parseDateString(b.Tanggal) - this.parseDateString(a.Tanggal));
+    },
+
+    get reportAccounts() {
+      const wId = this.reportEffectiveWalletId;
+      if (wId !== 'ALL') {
+        return this.allAccounts.filter(a => (a.WalletID || 'WLT-1') === wId && String(a.IsActive).toUpperCase() === 'TRUE');
+      }
+      return this.allAccounts.filter(a => String(a.IsActive).toUpperCase() === 'TRUE');
+    },
+
+    get reportTotalIncome() {
+      return this.reportFilteredTransactions
+        .filter(t => t.TipeTransaksi === 'PEMASUKAN')
+        .reduce((sum, t) => sum + (Number(t.Nominal) || 0), 0);
+    },
+
+    get reportTotalExpense() {
+      return this.reportFilteredTransactions
+        .filter(t => t.TipeTransaksi === 'PENGELUARAN')
+        .reduce((sum, t) => sum + (Number(t.Nominal) || 0), 0);
+    },
+
+    get reportNetSurplus() {
+      return this.reportTotalIncome - this.reportTotalExpense;
+    },
+
+    // ===== CATATAN LABA BULANAN & KALKULASI OPERASIONAL =====
+    get reportMonthlyProfitRecord() {
+      const wId = this.reportEffectiveWalletId;
+      if (this.reportPeriodType === 'month') {
+        return this.monthlyProfits.find(p => 
+          (wId === 'ALL' || p.walletId === wId || p.walletId === '*') &&
+          p.month === this.reportSelectedMonth &&
+          p.year === this.reportSelectedYear
+        ) || null;
+      }
+      return null;
+    },
+
+    get reportTotalMonthlyProfitInput() {
+      const wId = this.reportEffectiveWalletId;
+      if (this.reportPeriodType === 'month') {
+        const rec = this.reportMonthlyProfitRecord;
+        return rec ? Number(rec.nominal) || 0 : 0;
+      } else if (this.reportPeriodType === 'year') {
+        return this.monthlyProfits
+          .filter(p => (wId === 'ALL' || p.walletId === wId || p.walletId === '*') && p.year === this.reportSelectedYear)
+          .reduce((sum, p) => sum + (Number(p.nominal) || 0), 0);
+      } else {
+        return this.monthlyProfits
+          .filter(p => wId === 'ALL' || p.walletId === wId || p.walletId === '*')
+          .reduce((sum, p) => sum + (Number(p.nominal) || 0), 0);
+      }
+    },
+
+    get hasReportMonthlyProfit() {
+      return this.reportTotalMonthlyProfitInput > 0;
+    },
+
+    // ===== PENGATURAN KATEGORI LAPORAN OPERASIONAL =====
+    // Kategori pengeluaran yang tersedia untuk dompet yang sedang dilihat
+    get reportAvailableExpenseCategories() {
+      const wId = this.reportEffectiveWalletId;
+      return this.allCategories.filter(c => 
+        c.Tipe === 'PENGELUARAN' && 
+        String(c.IsActive).toUpperCase() === 'TRUE' &&
+        (wId === 'ALL' || c.WalletID === '*' || c.WalletID === wId)
+      );
+    },
+
+    // Kategori standar yang direkomendasikan untuk beban operasional murni (Operasional, Gaji, Admin Bank, Sewa, Listrik)
+    get defaultOperationalCategoryIds() {
+      const keywords = ['operasional', 'gaji', 'admin', 'sewa', 'listrik', 'kantor', 'toko'];
+      const matched = this.reportAvailableExpenseCategories.filter(cat => {
+        const name = (cat.NamaKategori || '').toLowerCase();
+        return keywords.some(k => name.includes(k));
+      });
+      if (matched.length > 0) {
+        return matched.map(c => c.CategoryID);
+      }
+      return this.reportAvailableExpenseCategories.map(c => c.CategoryID);
+    },
+
+    // Kategori pengeluaran efektif yang dipilih pengguna untuk laporan operasional (mengecualikan Bagi Hasil)
+    get effectiveReportOperationalCategoryIds() {
+      const availableCats = this.reportAvailableExpenseCategories;
+      const availableIds = availableCats.map(c => c.CategoryID);
+      let selected = [];
+      if (Array.isArray(this.reportSelectedCategoryIds) && this.reportSelectedCategoryIds.length > 0) {
+        selected = this.reportSelectedCategoryIds.filter(id => {
+          if (!availableIds.includes(id)) return false;
+          const cat = this.allCategories.find(c => c.CategoryID === id);
+          const name = (cat?.NamaKategori || '').toLowerCase();
+          return !name.includes('bagi hasil') && !name.includes('dividen') && !name.includes('profit sharing');
+        });
+      }
+      if (selected.length === 0) {
+        selected = this.defaultOperationalCategoryIds.filter(id => {
+          const cat = this.allCategories.find(c => c.CategoryID === id);
+          const name = (cat?.NamaKategori || '').toLowerCase();
+          return !name.includes('bagi hasil') && !name.includes('dividen') && !name.includes('profit sharing');
+        });
+      }
+
+      // Pastikan kategori operasional baku (Operasional & Admin Bank) selalu otomatis tercantum memotong laba
+      const sysOpsCats = availableCats.filter(c => {
+        const n = (c.NamaKategori || '').toLowerCase();
+        return (n === 'operasional' || n === 'admin bank' || n.includes('admin')) &&
+               !n.includes('bagi hasil') && !n.includes('dividen') && !n.includes('profit sharing');
+      });
+      sysOpsCats.forEach(sc => {
+        if (!selected.includes(sc.CategoryID)) {
+          selected.push(sc.CategoryID);
+        }
+      });
+
+      return selected;
+    },
+
+    // Transaksi pengeluaran yang secara spesifik merupakan Bagi Hasil / Dividen
+    get reportExpenseBagiHasilTransactions() {
+      const keywords = ['bagi hasil', 'dividen', 'profit sharing'];
+      return this.reportFilteredTransactions.filter(t => {
+        if (t.TipeTransaksi !== 'PENGELUARAN') return false;
+        const cat = this.allCategories.find(c => c.CategoryID === t.CategoryID);
+        const catName = (cat?.NamaKategori || '').toLowerCase();
+        const desc = (t.Deskripsi || '').toLowerCase();
+        return keywords.some(k => catName.includes(k) || desc.includes(k));
+      });
+    },
+
+    // Total nominal pengeluaran bagi hasil dari riwayat transaksi
+    get reportExpenseBagiHasilNominal() {
+      return this.reportExpenseBagiHasilTransactions.reduce((sum, t) => sum + (Number(t.Nominal) || 0), 0);
+    },
+
+    // Status apakah nominal bagi hasil ditarik otomatis dari riwayat transaksi
+    get isReportProfitSharingFromHistory() {
+      const key = this.reportProfitSharingKey;
+      const cfg = this.profitSharingConfig;
+      if (cfg?.modeByPeriod && cfg.modeByPeriod[key] === 'manual') {
+        return false;
+      }
+      return this.reportExpenseBagiHasilNominal > 0;
+    },
+
+    // Total pengeluaran KHUSUS dari kategori terpilih yang memotong laba
+    // Mengecualikan transaksi bagi hasil agar tidak terpotong dua kali di Laba Bersih
+    get reportOperationalTotalExpense() {
+      const selectedCatIds = this.effectiveReportOperationalCategoryIds;
+      const bagiHasilTxIds = this.reportExpenseBagiHasilTransactions.map(t => t.TransactionID);
+      return this.reportFilteredTransactions
+        .filter(t => t.TipeTransaksi === 'PENGELUARAN' && selectedCatIds.includes(t.CategoryID) && !bagiHasilTxIds.includes(t.TransactionID))
+        .reduce((sum, t) => sum + (Number(t.Nominal) || 0), 0);
+    },
+
+    // Transaksi pengeluaran khusus dari kategori terpilih (murni operasional)
+    get reportOperationalExpenseTransactions() {
+      const selectedCatIds = this.effectiveReportOperationalCategoryIds;
+      const bagiHasilTxIds = this.reportExpenseBagiHasilTransactions.map(t => t.TransactionID);
+      return this.reportFilteredTransactions.filter(t => 
+        t.TipeTransaksi === 'PENGELUARAN' && selectedCatIds.includes(t.CategoryID) && !bagiHasilTxIds.includes(t.TransactionID)
+      );
+    },
+
+    // Transaksi pengeluaran khusus dari kategori terpilih dengan filter pencarian
+    get reportOperationalFilteredTransactions() {
+      let list = this.reportOperationalExpenseTransactions;
+      if (this.reportSearchQuery && this.reportSearchQuery.trim() !== '') {
+        const q = this.reportSearchQuery.toLowerCase();
+        list = list.filter(t => 
+          (t.Deskripsi && t.Deskripsi.toLowerCase().includes(q)) ||
+          (t.KasirUsername && t.KasirUsername.toLowerCase().includes(q))
+        );
+      }
+      return list;
+    },
+
+    // Laba Bersih Operasional = Laba (Diinput / Pemasukan) - Total Beban Kategori Terpilih
+    get reportOperationalNetProfit() {
+      const baseProfit = this.hasReportMonthlyProfit ? this.reportTotalMonthlyProfitInput : this.reportTotalIncome;
+      return baseProfit - this.reportOperationalTotalExpense;
+    },
+
+    // Rasio Beban Kategori Terpilih terhadap Laba Masuk
+    get reportOperationalExpenseRatio() {
+      const base = this.hasReportMonthlyProfit ? this.reportTotalMonthlyProfitInput : this.reportTotalIncome;
+      if (base <= 0) return this.reportOperationalTotalExpense > 0 ? 100 : 0;
+      return Math.min(Math.round((this.reportOperationalTotalExpense / base) * 100), 100);
+    },
+
+    // Margin Laba Bersih Operasional
+    get reportOperationalMargin() {
+      const base = this.hasReportMonthlyProfit ? this.reportTotalMonthlyProfitInput : this.reportTotalIncome;
+      if (base <= 0) return 0;
+      return Math.round((this.reportOperationalNetProfit / base) * 100);
+    },
+
+    // ===== KALKULASI PENGGUNAAN LABA & BAGI HASIL =====
+    get reportProfitSharingKey() {
+      const wId = this.reportEffectiveWalletId;
+      if (this.reportPeriodType === 'month') {
+        return `${wId}_${this.reportSelectedYear}_${this.reportSelectedMonth}`;
+      } else if (this.reportPeriodType === 'year') {
+        return `${wId}_${this.reportSelectedYear}_ALL`;
+      }
+      return `${wId}_ALL_ALL`;
+    },
+
+    get reportProfitSharingNominal() {
+      const cfg = this.profitSharingConfig;
+      const key = this.reportProfitSharingKey;
+
+      // 1. Jika mode manual dipilih secara eksplisit untuk periode ini
+      if (cfg?.modeByPeriod && cfg.modeByPeriod[key] === 'manual') {
+        return Number(cfg.periodNominals?.[key]) || 0;
+      }
+
+      // 2. Prioritas utama: Langsung ambil otomatis dari riwayat transaksi pengeluaran
+      const expenseFromHistory = this.reportExpenseBagiHasilNominal;
+      if (expenseFromHistory > 0) {
+        return expenseFromHistory;
+      }
+
+      // 3. Jika belum ada transaksi di riwayat, gunakan setelan manual tersimpan untuk periode ini
+      if (cfg?.periodNominals && cfg.periodNominals[key] !== undefined && cfg.periodNominals[key] !== null && cfg.periodNominals[key] !== '') {
+        return Number(cfg.periodNominals[key]) || 0;
+      }
+
+      // 4. Fallback default
+      return Number(cfg?.defaultNominal) || 0;
+    },
+
+    // Biaya Lain-Lain ditiadakan di Laporan Operasional (murni kategori terpilih)
+    get reportProfitSharingOtherExpenses() {
+      return 0;
+    },
+
+    // Total Sisa Laba = LABA BERSIH - Laba Bagi Hasil
+    get reportRemainingProfit() {
+      return this.reportOperationalNetProfit - this.reportProfitSharingNominal;
+    },
+
+    // Rincian Pembagian Laba per Pihak (% & Nominal Rp)
+    get reportProfitSharingDistribution() {
+      const total = this.reportProfitSharingNominal;
+      const shares = (this.profitSharingConfig?.shares && this.profitSharingConfig.shares.length > 0)
+        ? this.profitSharingConfig.shares
+        : [
+            { id: 'share-1', name: 'Pihak 1 (Pengelola)', percent: 60 },
+            { id: 'share-2', name: 'Pihak 2 (Investor)', percent: 40 }
+          ];
+
+      return shares.map((s, idx) => {
+        const pct = Number(s.percent) || 0;
+        const nominal = Math.round((pct / 100) * total);
+        return {
+          no: idx + 1,
+          id: s.id || `share-${idx}`,
+          name: s.name || `Pihak ${idx + 1}`,
+          percent: pct,
+          nominal: nominal
+        };
+      });
+    },
+
+    get reportProfitSharingTotalPercent() {
+      return (this.profitSharingConfig?.shares || []).reduce((sum, s) => sum + (Number(s.percent) || 0), 0);
+    },
+
+    // Nama file PDF dinamis sesuai Dompet, Jenis Laporan, dan Periode Bulan/Tahun
+    get reportPdfFileName() {
+      const type = this.reportType === 'operasional' ? 'Laporan_Operasional' : 'Laporan_Keuangan';
+      const wName = (this.reportWalletName || 'Dompet')
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_\-]/g, '');
+      const pLabel = (this.reportPeriodLabel || '')
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_\-]/g, '');
+      return `${type}_${wName}_${pLabel}`;
+    },
+
+    // Rincian Breakdown Beban Kategori Terpilih (Murni Beban Operasional, Bukan Bagi Hasil)
+    get reportOperationalCategoryBreakdown() {
+      const selectedCatIds = this.effectiveReportOperationalCategoryIds;
+      const bagiHasilTxIds = new Set(this.reportExpenseBagiHasilTransactions.map(t => t.TransactionID));
+      const catsMap = {};
+      const totalExp = this.reportOperationalTotalExpense;
+
+      // Inisialisasi seluruh kategori yang dipilih agar tampil di rincian laporan
+      selectedCatIds.forEach(id => {
+        const cat = this.allCategories.find(c => c.CategoryID === id);
+        const catName = (cat?.NamaKategori || '').toLowerCase();
+        if (catName.includes('bagi hasil') || catName.includes('dividen') || catName.includes('profit sharing')) return;
+        catsMap[id] = {
+          categoryId: id,
+          nama: cat ? cat.NamaKategori : id,
+          tipe: 'PENGELUARAN',
+          warna: cat ? cat.Warna : '#64748b',
+          ikon: cat ? cat.Ikon : 'fa-receipt',
+          total: 0,
+          count: 0
+        };
+      });
+
+      this.reportFilteredTransactions
+        .filter(t => t.TipeTransaksi === 'PENGELUARAN' && selectedCatIds.includes(t.CategoryID) && !bagiHasilTxIds.has(t.TransactionID))
+        .forEach(t => {
+          const catId = t.CategoryID || 'UNKNOWN';
+          const cat = this.allCategories.find(c => c.CategoryID === catId);
+          const catName = (cat?.NamaKategori || '').toLowerCase();
+          if (catName.includes('bagi hasil') || catName.includes('dividen') || catName.includes('profit sharing')) return;
+          if (!catsMap[catId]) {
+            catsMap[catId] = {
+              categoryId: catId,
+              nama: cat ? cat.NamaKategori : 'Pengeluaran Terpilih',
+              tipe: 'PENGELUARAN',
+              warna: cat ? cat.Warna : '#64748b',
+              ikon: cat ? cat.Ikon : 'fa-receipt',
+              total: 0,
+              count: 0
+            };
+          }
+          catsMap[catId].total += Number(t.Nominal) || 0;
+          catsMap[catId].count += 1;
+        });
+
+      return Object.values(catsMap)
+        .map(c => ({
+          ...c,
+          percent: totalExp > 0 ? Math.round((c.total / totalExp) * 100) : 0
+        }))
+        .filter(c => c.count > 0 || c.total > 0)
+        .sort((a, b) => {
+          if (b.total !== a.total) return b.total - a.total;
+          return a.nama.localeCompare(b.nama);
+        });
+    },
+
+    // Getters pembantu untuk lembar cetak & pratinjau dokumen resmi
+    get printCategoryBreakdown() {
+      if (this.reportType === 'operasional') {
+        return this.reportOperationalCategoryBreakdown;
+      }
+      return this.reportCategoryBreakdown;
+    },
+
+    get printTransactions() {
+      if (this.reportType === 'operasional') {
+        return this.reportOperationalFilteredTransactions;
+      }
+      return this.reportFilteredTransactions;
+    },
+
+    get printTotalExpense() {
+      if (this.reportType === 'operasional') {
+        return this.reportOperationalTotalExpense;
+      }
+      return this.reportTotalExpense;
+    },
+
+    get reportTotalTransfers() {
+      return this.reportFilteredTransfers
+        .reduce((sum, tr) => sum + (Number(tr.Nominal) || 0), 0);
+    },
+
+    get reportTotalBalance() {
+      return this.reportAccounts
+        .reduce((sum, a) => sum + (Number(a.SaldoSekarang) || 0), 0);
+    },
+
+    get reportExpenseRatio() {
+      if (this.reportTotalIncome <= 0) return this.reportTotalExpense > 0 ? 100 : 0;
+      return Math.min(Math.round((this.reportTotalExpense / this.reportTotalIncome) * 100), 100);
+    },
+
+    get reportOperatingMargin() {
+      if (this.reportTotalIncome <= 0) return 0;
+      return Math.round((this.reportNetSurplus / this.reportTotalIncome) * 100);
+    },
+
+    get reportCategoryBreakdown() {
+      const catsMap = {};
+      const totalExp = this.reportTotalExpense;
+      const totalInc = this.reportTotalIncome;
+
+      this.reportFilteredTransactions.forEach(t => {
+        const cat = this.allCategories.find(c => c.CategoryID === t.CategoryID);
+        const catId = t.CategoryID || 'UNKNOWN';
+        const catName = cat ? cat.NamaKategori : (t.TipeTransaksi === 'PEMASUKAN' ? 'Pemasukan Lain' : 'Pengeluaran Lain');
+        const catType = t.TipeTransaksi;
+        const catColor = cat ? cat.Warna : '#64748b';
+        const catIcon = cat ? cat.Ikon : (catType === 'PEMASUKAN' ? 'fa-arrow-down' : 'fa-arrow-up');
+
+        if (!catsMap[catId]) {
+          catsMap[catId] = {
+            categoryId: catId,
+            nama: catName,
+            tipe: catType,
+            warna: catColor,
+            ikon: catIcon,
+            total: 0,
+            count: 0
+          };
+        }
+        catsMap[catId].total += Number(t.Nominal) || 0;
+        catsMap[catId].count += 1;
+      });
+
+      const list = Object.values(catsMap);
+      list.forEach(item => {
+        const base = item.tipe === 'PENGELUARAN' ? totalExp : totalInc;
+        item.percent = base > 0 ? Math.round((item.total / base) * 100) : 0;
+      });
+
+      return list.sort((a, b) => b.total - a.total);
+    },
+
+    get reportAccountBreakdown() {
+      return this.reportAccounts.map(acc => {
+        const accTxns = this.reportFilteredTransactions.filter(t => t.AccountID === acc.AccountID);
+        const inFlow = accTxns.filter(t => t.TipeTransaksi === 'PEMASUKAN').reduce((s, t) => s + (Number(t.Nominal) || 0), 0);
+        const outFlow = accTxns.filter(t => t.TipeTransaksi === 'PENGELUARAN').reduce((s, t) => s + (Number(t.Nominal) || 0), 0);
+        
+        const trIn = this.reportFilteredTransfers.filter(tr => tr.ToAccountID === acc.AccountID).reduce((s, tr) => s + (Number(tr.Nominal) || 0), 0);
+        const trOut = this.reportFilteredTransfers.filter(tr => tr.FromAccountID === acc.AccountID).reduce((s, tr) => s + (Number(tr.TotalKeluar || tr.Nominal) || 0), 0);
+
+        const totalMasuk = inFlow + trIn;
+        const totalKeluar = outFlow + trOut;
+
+        return {
+          accountId: acc.AccountID,
+          namaAkun: acc.NamaAkun,
+          tipeAkun: acc.TipeAkun,
+          ikon: acc.Ikon,
+          warna: acc.Warna,
+          saldoSekarang: Number(acc.SaldoSekarang) || 0,
+          totalMasuk: totalMasuk,
+          totalKeluar: totalKeluar,
+          netFlow: totalMasuk - totalKeluar
+        };
+      });
+    },
+
+    // ================= GETTERS FINANSIAL (DOMPET AKTIF) =================
+    get totalNetWorth() {
+      return this.accounts
+        .filter(a => String(a.IsActive).toUpperCase() === 'TRUE')
+        .reduce((sum, a) => sum + (Number(a.SaldoSekarang) || 0), 0);
+    },
+
+    get selectedPeriodLabel() {
+      if (this.isAllPeriod) {
+        return 'Semua Waktu';
+      }
+      return `${this.monthNames[this.selectedMonth]} ${this.selectedYear}`;
+    },
+
+    get isCurrentMonthSelected() {
+      const now = new Date();
+      return !this.isAllPeriod && this.selectedMonth === now.getMonth() && this.selectedYear === now.getFullYear();
+    },
+
+    get periodHistoryCount() {
+      let list = this.unifiedHistory;
+      if (!this.isAllPeriod) {
+        list = list.filter(item => this.isItemInSelectedPeriod(item.tanggal));
+      }
+      return list.length;
+    },
+
+    get periodTransferCount() {
+      let list = this.transfers;
+      if (!this.isAllPeriod) {
+        list = list.filter(tr => this.isItemInSelectedPeriod(tr.Tanggal));
+      }
+      return list.length;
+    },
+
+    get currentMonthExpenses() {
+      return this.transactions
+        .filter(t => t.TipeTransaksi === 'PENGELUARAN' && this.isItemInSelectedPeriod(t.Tanggal))
+        .reduce((sum, t) => sum + (Number(t.Nominal) || 0), 0);
+    },
+
+    get currentMonthIncome() {
+      return this.transactions
+        .filter(t => t.TipeTransaksi === 'PEMASUKAN' && this.isItemInSelectedPeriod(t.Tanggal))
+        .reduce((sum, t) => sum + (Number(t.Nominal) || 0), 0);
+    },
+
+    get netCashflow() {
+      return this.currentMonthIncome - this.currentMonthExpenses;
+    },
+
+    get totalMonthlyBudget() {
+      return this.categories
+        .filter(c => c.Tipe === 'PENGELUARAN' && String(c.IsActive).toUpperCase() === 'TRUE')
+        .reduce((sum, c) => sum + (Number(c.BudgetBulanan) || 0), 0);
+    },
+
+    get remainingMonthlyBudget() {
+      return this.totalMonthlyBudget - this.currentMonthExpenses;
+    },
+
+    get totalBudgetPercent() {
+      if (this.totalMonthlyBudget <= 0) return 0;
+      return Math.round((this.currentMonthExpenses / this.totalMonthlyBudget) * 100);
+    },
+
+    get totalTransferVolume() {
+      return this.transfers.reduce((sum, tr) => sum + (Number(tr.Nominal) || 0), 0);
+    },
+
+    // Unified Timeline Transaksi & Transfer
+    get unifiedHistory() {
+      const list = [];
+
+      this.transactions.forEach(t => {
+        const acc = this.accounts.find(a => a.AccountID === t.AccountID);
+        const cat = this.categories.find(c => c.CategoryID === t.CategoryID);
+        list.push({
+          id: t.TransactionID,
+          itemType: 'TRANSACTION',
+          tipe: t.TipeTransaksi,
+          tanggal: this.formatDateDisplay(t.Tanggal),
+          nominal: Number(t.Nominal) || 0,
+          deskripsi: t.Deskripsi,
+          accountName: acc ? acc.NamaAkun : 'Akun Tidak Dikenal',
+          accountIcon: acc ? acc.Ikon : 'fa-wallet',
+          accountColor: acc ? acc.Warna : '#64748b',
+          categoryName: cat ? cat.NamaKategori : (t.TipeTransaksi === 'PEMASUKAN' ? 'Pemasukan' : 'Pengeluaran'),
+          categoryIcon: cat ? cat.Ikon : (t.TipeTransaksi === 'PEMASUKAN' ? 'fa-arrow-down' : 'fa-arrow-up'),
+          categoryColor: cat ? cat.Warna : '#10b981',
+          kasirUsername: t.KasirUsername || 'superadmin',
+          raw: t
+        });
+      });
+
+      this.transfers.forEach(tr => {
+        const fromAcc = this.accounts.find(a => a.AccountID === tr.FromAccountID);
+        const toAcc = this.accounts.find(a => a.AccountID === tr.ToAccountID);
+        list.push({
+          id: tr.TransferID,
+          itemType: 'TRANSFER',
+          tipe: 'PINDAH_DANA',
+          tanggal: this.formatDateDisplay(tr.Tanggal),
+          nominal: Number(tr.Nominal) || 0,
+          biayaAdmin: Number(tr.BiayaAdmin) || 0,
+          deskripsi: tr.Catatan || 'Pindah Dana',
+          accountName: `${fromAcc ? fromAcc.NamaAkun : '?'} → ${toAcc ? toAcc.NamaAkun : '?'}`,
+          fromAccountName: fromAcc ? fromAcc.NamaAkun : 'Akun Asal',
+          toAccountName: toAcc ? toAcc.NamaAkun : 'Akun Tujuan',
+          accountIcon: 'fa-right-left',
+          accountColor: '#0284c7',
+          categoryName: 'Pindah Dana',
+          categoryIcon: 'fa-arrows-rotate',
+          categoryColor: '#0284c7',
+          kasirUsername: tr.KasirUsername || 'superadmin',
+          raw: tr
+        });
+      });
+
+      return list.sort((a, b) => {
+        const rawDateA = a.raw && a.raw.Tanggal ? this.parseDateString(a.raw.Tanggal) : this.parseDateString(a.tanggal);
+        const rawDateB = b.raw && b.raw.Tanggal ? this.parseDateString(b.raw.Tanggal) : this.parseDateString(b.tanggal);
+        const diff = rawDateB - rawDateA;
+        if (diff !== 0) return diff;
+        return String(b.id || '').localeCompare(String(a.id || ''));
+      });
+    },
+
+    get filteredHistory() {
+      let result = this.unifiedHistory;
+
+      if (!this.isAllPeriod) {
+        result = result.filter(item => this.isItemInSelectedPeriod(item.tanggal));
+      }
+
+      if (this.filterType) {
+        result = result.filter(item => item.tipe === this.filterType);
+      }
+
+      if (this.filterAccount) {
+        result = result.filter(item => {
+          if (item.itemType === 'TRANSACTION') {
+            return item.raw.AccountID === this.filterAccount;
+          }
+          if (item.itemType === 'TRANSFER') {
+            return item.raw.FromAccountID === this.filterAccount || item.raw.ToAccountID === this.filterAccount;
+          }
+          return true;
+        });
+      }
+
+      if (this.filterCategory) {
+        result = result.filter(item => item.itemType === 'TRANSACTION' && item.raw.CategoryID === this.filterCategory);
+      }
+
+      if (this.searchQuery && this.searchQuery.trim() !== '') {
+        const q = this.searchQuery.toLowerCase();
+        result = result.filter(item => 
+          item.deskripsi.toLowerCase().includes(q) ||
+          item.accountName.toLowerCase().includes(q) ||
+          item.categoryName.toLowerCase().includes(q) ||
+          (item.kasirUsername && item.kasirUsername.toLowerCase().includes(q))
+        );
+      }
+
+      return result;
+    },
+
+    get categoryBreakdown() {
+      const expenses = this.transactions.filter(t => 
+        t.TipeTransaksi === 'PENGELUARAN' && this.isItemInSelectedPeriod(t.Tanggal)
+      );
+      const catMap = {};
+
+      expenses.forEach(t => {
+        const catId = t.CategoryID || 'OTHER';
+        catMap[catId] = (catMap[catId] || 0) + Number(t.Nominal);
+      });
+
+      return this.categories
+        .filter(c => c.Tipe === 'PENGELUARAN')
+        .map(c => {
+          const spent = catMap[c.CategoryID] || 0;
+          const budget = Number(c.BudgetBulanan) || 0;
+          const percent = budget > 0 ? Math.min(Math.round((spent / budget) * 100), 100) : 0;
+          const isOver = budget > 0 && spent > budget;
+          return {
+            ...c,
+            spent,
+            budget,
+            percent,
+            isOver
+          };
+        })
+        .sort((a, b) => b.spent - a.spent);
+    },
+
+    get filteredCategories() {
+      if (!this.categoryFilterType || this.categoryFilterType === 'ALL') {
+        return this.categories;
+      }
+      return this.categories.filter(c => c.Tipe === this.categoryFilterType);
+    },
+
+    // ================= MULTI-DOMPET (WALLET) ACTIONS =================
+    openAddWalletModal() {
+      if (!this.canCreateWallet) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Akses Dibatasi',
+          text: 'Hanya Super Administrator yang memiliki hak akses untuk membuat dompet baru.'
+        });
+        return;
+      }
+      this.walletForm = {
+        WalletID: '',
+        NamaDompet: '',
+        Deskripsi: '',
+        Ikon: 'fa-wallet',
+        Warna: '#059669',
+        initDefaults: true
+      };
+      this.showWalletModal = true;
+    },
+
+    openEditWalletModal(wallet) {
+      if (!this.canAccessWallet(wallet.WalletID)) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Akses Dibatasi',
+          text: 'Anda tidak memiliki hak akses untuk mengedit dompet ini.'
+        });
+        return;
+      }
+      this.walletForm = {
+        WalletID: wallet.WalletID,
+        NamaDompet: wallet.NamaDompet,
+        Deskripsi: wallet.Deskripsi || '',
+        Ikon: wallet.Ikon || 'fa-wallet',
+        Warna: wallet.Warna || '#059669',
+        initDefaults: false
+      };
+      this.showWalletModal = true;
+    },
+
+    async submitWallet() {
+      if (!this.walletForm.NamaDompet.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Nama Dompet Wajib Diisi' });
+        return;
+      }
+
+      const isEdit = !!this.walletForm.WalletID;
+      if (!isEdit && !this.canCreateWallet) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Akses Ditolak',
+          text: 'Hanya Super Administrator yang dapat membuat dompet baru.'
+        });
+        return;
+      }
+
+      this.isLoading = true;
+      const walletId = this.walletForm.WalletID || ('WLT-' + new Date().getTime());
+
+      const payload = {
+        WalletID: walletId,
+        NamaDompet: this.walletForm.NamaDompet.trim(),
+        Deskripsi: this.walletForm.Deskripsi.trim(),
+        Ikon: this.walletForm.Ikon || 'fa-wallet',
+        Warna: this.walletForm.Warna || '#059669',
+        OwnerUserID: this.currentUser ? this.currentUser.Username : 'user',
+        IsActive: 'TRUE',
+        CreatedAt: this.formatDateInput(new Date()).split(' ')[0],
+        initDefaults: this.walletForm.initDefaults
+      };
+
+      if (isEdit) {
+        const idx = this.wallets.findIndex(w => w.WalletID === walletId);
+        if (idx !== -1) {
+          this.wallets[idx] = { ...this.wallets[idx], ...payload };
+        }
+      } else {
+        this.wallets.push(payload);
+
+        // Jika dompet baru dibuat oleh user non-superadmin, tambahkan ke AssignedWallets pengguna aktif
+        if (this.currentUser && this.currentUser.AssignedWallets !== '*') {
+          let assigned = (this.currentUser.AssignedWallets || '').split(',').map(s => s.trim()).filter(Boolean);
+          if (!assigned.includes(walletId)) {
+            assigned.push(walletId);
+            this.currentUser.AssignedWallets = assigned.join(',');
+            const uIdx = this.users.findIndex(u => u.UserID === this.currentUser.UserID);
+            if (uIdx !== -1) {
+              this.users[uIdx].AssignedWallets = this.currentUser.AssignedWallets;
+            }
+            localStorage.setItem(USER_KEY, JSON.stringify(this.currentUser));
+          }
+        }
+
+        // Jika buat baru dan centang inisialisasi akun & kategori default
+        if (this.walletForm.initDefaults) {
+          const accTunai = {
+            AccountID: 'ACC-' + walletId + '-1',
+            WalletID: walletId,
+            NamaAkun: 'Kas Tunai ' + payload.NamaDompet,
+            TipeAkun: 'TUNAI',
+            NomorAkun: 'Uang Fisik',
+            SaldoAwal: 0,
+            SaldoSekarang: 0,
+            Warna: payload.Warna,
+            Ikon: 'fa-wallet',
+            IsActive: 'TRUE'
+          };
+          const accBank = {
+            AccountID: 'ACC-' + walletId + '-2',
+            WalletID: walletId,
+            NamaAkun: 'Rekening Bank ' + payload.NamaDompet,
+            TipeAkun: 'BANK',
+            NomorAkun: '-',
+            SaldoAwal: 0,
+            SaldoSekarang: 0,
+            Warna: '#2563eb',
+            Ikon: 'fa-building-columns',
+            IsActive: 'TRUE'
+          };
+          this.allAccounts.push(accTunai, accBank);
+
+          // Buat kategori baku sistem khusus dompet ini
+          const catPemasukan = {
+            CategoryID: 'CAT-' + walletId + '-IN1',
+            WalletID: walletId,
+            NamaKategori: 'Pemasukan ' + payload.NamaDompet,
+            Tipe: 'PEMASUKAN',
+            Ikon: 'fa-money-bill-wave',
+            Warna: '#10b981',
+            BudgetBulanan: 0,
+            Urutan: 1,
+            IsActive: 'TRUE'
+          };
+          const catOperasional = {
+            CategoryID: 'CAT-' + walletId + '-SYS-OPS',
+            WalletID: walletId,
+            NamaKategori: 'Operasional',
+            Tipe: 'PENGELUARAN',
+            Ikon: 'fa-briefcase',
+            Warna: '#0284c7',
+            BudgetBulanan: 1000000,
+            Urutan: 2,
+            IsActive: 'TRUE',
+            IsSystem: 'TRUE'
+          };
+          const catBagiHasil = {
+            CategoryID: 'CAT-' + walletId + '-SYS-BGH',
+            WalletID: walletId,
+            NamaKategori: 'Bagi Hasil',
+            Tipe: 'PENGELUARAN',
+            Ikon: 'fa-hand-holding-dollar',
+            Warna: '#0d9488',
+            BudgetBulanan: 1000000,
+            Urutan: 3,
+            IsActive: 'TRUE',
+            IsSystem: 'TRUE'
+          };
+          const catAdminBank = {
+            CategoryID: 'CAT-' + walletId + '-SYS-ADM',
+            WalletID: walletId,
+            NamaKategori: 'Admin Bank',
+            Tipe: 'PENGELUARAN',
+            Ikon: 'fa-receipt',
+            Warna: '#64748b',
+            BudgetBulanan: 100000,
+            Urutan: 4,
+            IsActive: 'TRUE',
+            IsSystem: 'TRUE'
+          };
+          this.allCategories.push(catPemasukan, catOperasional, catBagiHasil, catAdminBank);
+        }
+      }
+
+      this.saveLocalData();
+
+      try {
+        await runApi('saveWallet', [payload, this.currentUser ? this.currentUser.Role : 'user']);
+      } catch (e) {
+        console.warn('Sync wallet ke cloud gagal/offline:', e);
+      }
+
+      this.isLoading = false;
+      this.showWalletModal = false;
+
+      // Otomatis beralih ke dompet baru
+      if (!isEdit) {
+        this.switchWallet(walletId);
+      } else {
+        this.refreshActiveWalletData();
+      }
+
+      Swal.fire({
+        icon: 'success',
+        title: isEdit ? 'Dompet Diperbarui!' : 'Dompet Baru Dibuat!',
+        text: `Dompet "${payload.NamaDompet}" siap digunakan dengan data terpisah.`,
+        timer: 1800,
+        showConfirmButton: false
+      });
+    },
+
+    async deleteWalletItem(wallet) {
+      if (!this.canDeleteWallet) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Akses Ditolak',
+          text: 'Peran Pengguna (User) tidak memiliki izin untuk menghapus dompet. Anda hanya dapat menambah atau mengedit dompet.'
+        });
+        return;
+      }
+
+      if (this.wallets.length <= 1) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Tidak Bisa Dihapus',
+          text: 'Minimal harus ada 1 dompet aktif di aplikasi DompetKu.'
+        });
+        return;
+      }
+
+      const confirm = await Swal.fire({
+        title: `Hapus Dompet "${wallet.NamaDompet}"?`,
+        text: `Seluruh akun keuangan, riwayat transaksi, dan catatan pindah dana di dalam dompet ini akan ikut terhapus permanen!`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        confirmButtonText: 'Ya, Hapus Dompet Ini',
+        cancelButtonText: 'Batal'
+      });
+
+      if (!confirm.isConfirmed) return;
+
+      this.isLoading = true;
+
+      // Hapus data yang terikat dengan dompet ini
+      this.wallets = this.wallets.filter(w => w.WalletID !== wallet.WalletID);
+      this.allAccounts = this.allAccounts.filter(a => a.WalletID !== wallet.WalletID);
+      this.allTransactions = this.allTransactions.filter(t => t.WalletID !== wallet.WalletID);
+      this.allTransfers = this.allTransfers.filter(tr => tr.WalletID !== wallet.WalletID);
+      this.allCategories = this.allCategories.filter(c => c.WalletID !== wallet.WalletID);
+
+      // Jika dompet yang dihapus sedang aktif, pindah ke dompet lain
+      if (this.activeWalletId === wallet.WalletID) {
+        this.activeWalletId = this.wallets[0].WalletID;
+        localStorage.setItem(ACTIVE_WALLET_KEY, this.activeWalletId);
+      }
+
+      this.refreshActiveWalletData();
+      this.saveLocalData();
+
+      try {
+        await runApi('deleteWallet', [wallet.WalletID, this.currentUser ? this.currentUser.Role : 'user']);
+      } catch (e) {}
+
+      this.isLoading = false;
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Dompet Berhasil Dihapus',
+        text: 'Data telah dibersihkan dan otomatis beralih ke dompet aktif lainnya.',
+        timer: 1600,
+        showConfirmButton: false
+      });
+    },
+
+    // ================= USER MANAGEMENT (SUPERADMIN) ACTIONS =================
+    openAddUserModal() {
+      const defaultWallet = this.activeWalletId || (this.wallets.length > 0 ? this.wallets[0].WalletID : '');
+      this.userForm = {
+        UserID: '',
+        Username: '',
+        FullName: '',
+        Password: '',
+        Role: 'user',
+        Pin: '123456',
+        IsActive: 'TRUE',
+        authMode: 'custom', // 'all' (Akses Semua) | 'custom' (Pilih Dompet)
+        AssignedWallets: defaultWallet ? [defaultWallet] : []
+      };
+      this.showUserModal = true;
+    },
+
+    openEditUserModal(user) {
+      const assigned = (!user.AssignedWallets || user.AssignedWallets === '*')
+        ? ['*']
+        : user.AssignedWallets.split(',').map(s => s.trim()).filter(Boolean);
+
+      const isAll = assigned.includes('*') || user.Role === 'superadmin';
+
+      this.userForm = {
+        UserID: user.UserID,
+        Username: user.Username,
+        FullName: user.FullName,
+        Password: '', // opsional ganti password
+        Role: user.Role || 'user',
+        Pin: user.Pin || '123456',
+        IsActive: user.IsActive || 'TRUE',
+        authMode: isAll ? 'all' : 'custom',
+        AssignedWallets: isAll ? ['*'] : assigned
+      };
+      this.showUserModal = true;
+    },
+
+    setAuthMode(mode) {
+      this.userForm.authMode = mode;
+      if (mode === 'all') {
+        this.userForm.AssignedWallets = ['*'];
+      } else {
+        const currentCustom = (this.userForm.AssignedWallets || []).filter(id => id !== '*');
+        if (currentCustom.length > 0) {
+          this.userForm.AssignedWallets = currentCustom;
+        } else {
+          const def = this.activeWalletId || (this.wallets.length > 0 ? this.wallets[0].WalletID : '');
+          this.userForm.AssignedWallets = def ? [def] : [];
+        }
+      }
+    },
+
+    toggleWalletAssignment(wId) {
+      if (this.userForm.authMode === 'all') {
+        this.userForm.authMode = 'custom';
+      }
+      let current = (this.userForm.AssignedWallets || []).filter(id => id !== '*');
+      if (current.includes(wId)) {
+        current = current.filter(id => id !== wId);
+      } else {
+        current.push(wId);
+      }
+      this.userForm.AssignedWallets = current;
+    },
+
+    async submitUser() {
+      if (!this.userForm.Username.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Username Wajib Diisi' });
+        return;
+      }
+      if (!this.userForm.FullName.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Nama Lengkap Wajib Diisi' });
+        return;
+      }
+
+      const isEdit = !!this.userForm.UserID;
+      const cleanUser = this.userForm.Username.trim().toLowerCase();
+
+      // Cek duplikasi username
+      const dup = this.users.find(u => u.Username.toLowerCase() === cleanUser && u.UserID !== this.userForm.UserID);
+      if (dup) {
+        Swal.fire({ icon: 'error', title: 'Username Sudah Dipakai', text: `Username "${this.userForm.Username}" sudah digunakan oleh pengguna lain.` });
+        return;
+      }
+
+      if (!isEdit && !this.userForm.Password) {
+        Swal.fire({ icon: 'warning', title: 'Password Wajib Diisi', text: 'Masukkan password awal untuk pengguna baru.' });
+        return;
+      }
+
+      // Pastikan otorisasi dompet valid
+      if (this.userForm.Role === 'superadmin') {
+        this.userForm.authMode = 'all';
+        this.userForm.AssignedWallets = ['*'];
+      }
+
+      let assignedWallets = [...(this.userForm.AssignedWallets || [])];
+      if (this.userForm.authMode === 'all' || assignedWallets.includes('*')) {
+        assignedWallets = ['*'];
+      } else {
+        assignedWallets = assignedWallets.filter(id => id !== '*');
+        if (assignedWallets.length === 0) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Pilih Dompet',
+            text: 'Tentukan minimal 1 dompet yang dapat diakses oleh pengguna ini.'
+          });
+          return;
+        }
+      }
+
+      this.isLoading = true;
+      const userId = this.userForm.UserID || ('USR-' + new Date().getTime());
+      const assignedStr = assignedWallets.includes('*') ? '*' : assignedWallets.join(',');
+
+      const payload = {
+        UserID: userId,
+        Username: cleanUser,
+        FullName: this.userForm.FullName.trim(),
+        Role: this.userForm.Role,
+        Pin: this.userForm.Pin || '123456',
+        IsActive: this.userForm.IsActive || 'TRUE',
+        AssignedWallets: assignedStr
+      };
+
+      if (this.userForm.Password) {
+        payload.Password = this.userForm.Password;
+      }
+
+      if (isEdit) {
+        const idx = this.users.findIndex(u => u.UserID === userId);
+        if (idx !== -1) {
+          this.users[idx] = { ...this.users[idx], ...payload };
+        }
+        // Jika sedang mengedit user yang sedang login
+        if (this.currentUser.UserID === userId) {
+          this.currentUser = { ...this.currentUser, ...payload };
+          localStorage.setItem(USER_KEY, JSON.stringify(this.currentUser));
+        }
+      } else {
+        this.users.push(payload);
+      }
+
+      this.saveLocalData();
+
+      try {
+        await runApi('saveUser', [payload]);
+      } catch (e) {
+        console.warn('Sync user ke cloud gagal/offline:', e);
+      }
+
+      this.isLoading = false;
+      this.showUserModal = false;
+
+      Swal.fire({
+        icon: 'success',
+        title: isEdit ? 'Pengguna Diperbarui!' : 'Pengguna Baru Ditambahkan!',
+        text: `Akun @${payload.Username} dengan peran ${payload.Role.toUpperCase()} berhasil disimpan.`,
+        timer: 1800,
+        showConfirmButton: false
+      });
+    },
+
+    async deleteUserItem(user) {
+      if (this.currentUser.UserID === user.UserID) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Tidak Bisa Menghapus Akun Sendiri',
+          text: 'Anda sedang aktif login dengan akun ini.'
+        });
+        return;
+      }
+
+      if (user.Role === 'superadmin' && this.superAdminCount <= 1) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Super Admin Terakhir',
+          text: 'Tidak dapat menghapus satu-satunya akun Super Admin sistem demi keamanan.'
+        });
+        return;
+      }
+
+      const confirm = await Swal.fire({
+        title: `Hapus Pengguna "${user.FullName}"?`,
+        text: `Akun @${user.Username} (${user.Role.toUpperCase()}) akan dihapus dan tidak bisa lagi mengakses sistem.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        confirmButtonText: 'Ya, Hapus Pengguna',
+        cancelButtonText: 'Batal'
+      });
+
+      if (!confirm.isConfirmed) return;
+
+      this.isLoading = true;
+      this.users = this.users.filter(u => u.UserID !== user.UserID);
+      this.saveLocalData();
+
+      try {
+        await runApi('deleteUser', [user.UserID]);
+      } catch (e) {}
+
+      this.isLoading = false;
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Pengguna Berhasil Dihapus',
+        timer: 1500,
+        showConfirmButton: false
+      });
+    },
+
+    async toggleUserStatus(user) {
+      if (this.currentUser.UserID === user.UserID) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Tidak Bisa Menonaktifkan Akun Sendiri',
+          text: 'Akun yang sedang aktif digunakan tidak boleh dinonaktifkan.'
+        });
+        return;
+      }
+
+      const nextStatus = (user.IsActive === 'TRUE') ? 'FALSE' : 'TRUE';
+      user.IsActive = nextStatus;
+      this.saveLocalData();
+
+      try {
+        await runApi('saveUser', [user]);
+      } catch (e) {}
+
+      const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 1400
+      });
+      Toast.fire({
+        icon: nextStatus === 'TRUE' ? 'success' : 'info',
+        title: `@${user.Username} sekarang ${nextStatus === 'TRUE' ? 'Aktif' : 'Nonaktif'}`
+      });
+    },
+
+    // GANTI USER AKTIF (SWITCH CURRENT USER)
+    switchCurrentUser(user) {
+      if (!this.canSwitchProfile) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Akses Ditolak',
+          text: 'Hanya Super Administrator yang dapat beralih profil langsung tanpa logout.'
+        });
+        return;
+      }
+
+      this.currentUser = { ...user };
+      localStorage.setItem(USER_KEY, JSON.stringify(this.currentUser));
+
+      // Jika user baru tidak punya akses ke dompet aktif saat ini, alihkan ke dompet miliknya
+      if (!this.canAccessWallet(this.activeWalletId)) {
+        const accessible = this.userAccessibleWallets[0];
+        if (accessible) {
+          this.switchWallet(accessible.WalletID);
+        }
+      }
+      this.syncReportFiltersWithActive();
+
+      this.showSwitchUserModal = false;
+      this.showUserDropdown = false;
+
+      const roleBadgeClass = user.Role === 'superadmin' 
+        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border-purple-200 dark:border-purple-800' 
+        : (user.Role === 'admin' 
+            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border-blue-200 dark:border-blue-800' 
+            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800');
+
+      Swal.fire({
+        html: `
+          <div class="p-3 text-center space-y-3">
+            <div class="relative mx-auto w-16 h-16 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-2xl bg-purple-500/20 blur-xl"></div>
+              <div class="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-purple-500/30">
+                <i class="fa-solid fa-arrows-rotate"></i>
+              </div>
+            </div>
+            <div>
+              <span class="text-[11px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block">Beralih Profil</span>
+              <h3 class="text-xl font-extrabold text-slate-900 dark:text-white mt-0.5">${user.FullName}</h3>
+              <p class="text-xs text-slate-400 mt-0.5">@${user.Username}</p>
+            </div>
+            <div class="pt-1">
+              <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${roleBadgeClass}">
+                ${user.Role.toUpperCase()}
+              </span>
+            </div>
+          </div>
+        `,
+        timer: 1500,
+        showConfirmButton: false,
+        buttonsStyling: false,
+        background: this.isDarkMode ? '#0f172a' : '#ffffff',
+        customClass: {
+          popup: 'rounded-3xl p-3 shadow-2xl border border-slate-200/90 dark:border-slate-800/90 backdrop-blur-2xl'
+        }
+      });
+    },
+
+    // QUICK FILL UNTUK FORM LOGIN
+    quickFillLogin(username, password) {
+      this.loginForm.username = username;
+      this.loginForm.password = password;
+      this.loginForm.errorMessage = '';
+      this.handleLogin();
+    },
+
+    // PROSES LOGIN
+    async handleLogin() {
+      const username = (this.loginForm.username || '').trim();
+      const password = (this.loginForm.password || '').trim();
+
+      if (!username || !password) {
+        this.loginForm.errorMessage = 'Username dan password wajib diisi';
+        return;
+      }
+
+      this.loginForm.loading = true;
+      this.loginForm.errorMessage = '';
+
+      try {
+        let authUser = null;
+
+        // 1. Coba verifikasi lewat API Apps Script jika terhubung
+        try {
+          const res = await runApi('doLogin', [username, password]);
+          if (res && res.success && res.data) {
+            authUser = {
+              UserID: res.data.userId || res.data.UserID,
+              Username: res.data.username || res.data.Username,
+              Role: res.data.role || res.data.Role,
+              FullName: res.data.fullName || res.data.FullName,
+              AssignedWallets: res.data.assignedWallets || res.data.AssignedWallets || '*'
+            };
+          } else if (res && res.success === false) {
+            this.loginForm.errorMessage = res.message || 'Username atau password salah';
+          }
+        } catch (apiErr) {
+          console.warn('API login offline / fallback ke local:', apiErr);
+        }
+
+        // 2. Jika offline / backend belum return user, verifikasi dari data users lokal
+        if (!authUser && !this.loginForm.errorMessage) {
+          const found = this.users.find(u =>
+            String(u.Username).toLowerCase() === username.toLowerCase() &&
+            (String(u.Password) === password || (!u.Password && (password === 'admin123' || password === 'toko123' || password === 'kasir123'))) &&
+            String(u.IsActive).toUpperCase() === 'TRUE'
+          );
+
+          if (found) {
+            authUser = { ...found };
+          } else if ((username.toLowerCase() === 'superadmin' || username.toLowerCase() === 'admin') && password === 'admin123') {
+            authUser = {
+              UserID: 'USR-1',
+              Username: 'superadmin',
+              Role: 'superadmin',
+              FullName: 'Super Administrator',
+              AssignedWallets: '*'
+            };
+          } else if ((username.toLowerCase() === 'manajer_toko' || username.toLowerCase() === 'toko') && (password === 'toko123' || password === 'admin123')) {
+            authUser = {
+              UserID: 'USR-2',
+              Username: 'manajer_toko',
+              Role: 'admin',
+              FullName: 'Manajer Toko',
+              AssignedWallets: 'WLT-2'
+            };
+          } else if ((username.toLowerCase() === 'kasir' || username.toLowerCase() === 'kasir_toko') && (password === 'kasir123' || password === 'toko123')) {
+            authUser = {
+              UserID: 'USR-4',
+              Username: 'kasir_toko',
+              Role: 'user',
+              FullName: 'Kasir Toko',
+              AssignedWallets: 'WLT-2'
+            };
+          } else if (username.toLowerCase() === 'kasir_pribadi' && password === 'kasir123') {
+            authUser = {
+              UserID: 'USR-3',
+              Username: 'kasir_pribadi',
+              Role: 'user',
+              FullName: 'Kasir Pribadi',
+              AssignedWallets: 'WLT-1'
+            };
+          }
+        }
+
+        if (!authUser) {
+          if (!this.loginForm.errorMessage) {
+            this.loginForm.errorMessage = 'Username atau password tidak cocok!';
+          }
+          this.loginForm.loading = false;
+          return;
+        }
+
+        // Login Berhasil!
+        this.currentUser = authUser;
+        this.isLoggedIn = true;
+        localStorage.setItem(USER_KEY, JSON.stringify(this.currentUser));
+        localStorage.setItem('DOMPETKU_LOGGED_IN', 'true');
+
+        // Pastikan dompet aktif otomatis sesuai hak akses user
+        if (!this.canAccessWallet(this.activeWalletId)) {
+          const allowed = this.userAccessibleWallets;
+          if (allowed.length > 0) {
+            this.activeWalletId = allowed[0].WalletID;
+            localStorage.setItem(ACTIVE_WALLET_KEY, this.activeWalletId);
+          }
+        }
+        if (!this.isSuperAdmin && (this.activeTab === 'users' || this.activeTab === 'backup')) {
+          this.activeTab = 'dashboard';
+        }
+        this.refreshActiveWalletData();
+        this.syncReportFiltersWithActive();
+
+        this.loginForm.password = '';
+        this.loginForm.loading = false;
+
+        const roleBadgeClass = this.currentUser.Role === 'superadmin' 
+          ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border-purple-200 dark:border-purple-800' 
+          : (this.currentUser.Role === 'admin' 
+              ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border-blue-200 dark:border-blue-800' 
+              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800');
+
+        const activeWalletObj = this.wallets.find(w => w.WalletID === this.activeWalletId) || this.wallets[0];
+        const activeWalletName = activeWalletObj ? activeWalletObj.NamaDompet : 'Dompet Utama';
+
+        Swal.fire({
+          html: `
+            <div class="p-3 text-center space-y-3">
+              <div class="relative mx-auto w-16 h-16 flex items-center justify-center">
+                <div class="absolute inset-0 rounded-2xl bg-emerald-500/20 blur-xl"></div>
+                <div class="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/30">
+                  <i class="fa-solid fa-circle-check"></i>
+                </div>
+              </div>
+              <div>
+                <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">Autentikasi Berhasil</span>
+                <h3 class="text-xl font-extrabold text-slate-900 dark:text-white mt-0.5">Selamat Datang! 👋</h3>
+                <p class="text-sm text-slate-600 dark:text-slate-300 mt-1">
+                  Halo, <b>${this.currentUser.FullName}</b>
+                </p>
+              </div>
+              <div class="flex items-center justify-center flex-wrap gap-2 pt-1">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${roleBadgeClass}">
+                  ${this.currentUser.Role.toUpperCase()}
+                </span>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80">
+                  <i class="fa-solid fa-wallet mr-1 text-[10px] text-emerald-500"></i> ${activeWalletName}
+                </span>
+              </div>
+            </div>
+          `,
+          timer: 1600,
+          showConfirmButton: false,
+          buttonsStyling: false,
+          background: this.isDarkMode ? '#0f172a' : '#ffffff',
+          customClass: {
+            popup: 'rounded-3xl p-3 shadow-2xl border border-slate-200/90 dark:border-slate-800/90 backdrop-blur-2xl'
+          }
+        });
+
+      } catch (e) {
+        console.error('Error saat login:', e);
+        this.loginForm.errorMessage = 'Terjadi kesalahan sistem saat mencoba masuk';
+        this.loginForm.loading = false;
+      }
+    },
+
+    // KELUAR / LOGOUT (MODAL MODERN)
+    logout() {
+      this.showLogoutModal = true;
+      this.showUserDropdown = false;
+      this.isSidebarOpen = false;
+    },
+
+    confirmLogout() {
+      this.showLogoutModal = false;
+      this.isLoggedIn = false;
+      localStorage.removeItem('DOMPETKU_LOGGED_IN');
+      this.loginForm.password = '';
+      this.loginForm.errorMessage = '';
+      this.isSidebarOpen = false;
+      this.showUserDropdown = false;
+
+      const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 1800,
+        timerProgressBar: true
+      });
+      Toast.fire({
+        icon: 'success',
+        title: 'Berhasil keluar dari akun'
+      });
+    },
+
+    // METODE NAVIGASI FILTER BULAN
+    prevMonth() {
+      this.isAllPeriod = false;
+      if (this.selectedMonth === 0) {
+        this.selectedMonth = 11;
+        this.selectedYear--;
+      } else {
+        this.selectedMonth--;
+      }
+      this.tempPickerYear = this.selectedYear;
+    },
+
+    nextMonth() {
+      this.isAllPeriod = false;
+      if (this.selectedMonth === 11) {
+        this.selectedMonth = 0;
+        this.selectedYear++;
+      } else {
+        this.selectedMonth++;
+      }
+      this.tempPickerYear = this.selectedYear;
+    },
+
+    setThisMonth() {
+      const now = new Date();
+      this.selectedMonth = now.getMonth();
+      this.selectedYear = now.getFullYear();
+      this.tempPickerYear = this.selectedYear;
+      this.isAllPeriod = false;
+      this.showMonthPickerModal = false;
+    },
+
+    setMonth(monthIndex, year = null) {
+      this.selectedMonth = monthIndex;
+      if (year !== null) {
+        this.selectedYear = year;
+        this.tempPickerYear = year;
+      }
+      this.isAllPeriod = false;
+      this.showMonthPickerModal = false;
+    },
+
+    toggleAllPeriod() {
+      this.isAllPeriod = !this.isAllPeriod;
+      this.showMonthPickerModal = false;
+    },
+
+    openMonthPicker() {
+      this.tempPickerYear = this.selectedYear;
+      this.showMonthPickerModal = true;
+    },
+
+    isItemInSelectedPeriod(dateStr) {
+      if (this.isAllPeriod) return true;
+      if (!dateStr) return false;
+      const d = this.parseDateString(dateStr);
+      if (isNaN(d.getTime())) return false;
+      return d.getMonth() === this.selectedMonth && d.getFullYear() === this.selectedYear;
+    },
+
+    // UTILITIES & FORMATTERS
+    formatRupiah(num) {
+      if (num === null || num === undefined || isNaN(num)) return 'Rp 0';
+      return 'Rp ' + Number(num).toLocaleString('id-ID');
+    },
+
+    formatDateInput(d) {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${day}/${month}/${year} ${hours}:${minutes}`;
+    },
+
+    formatDateDisplay(str) {
+      if (!str) return '-';
+      if (str instanceof Date) {
+        return this.formatDateInput(str);
+      }
+      if (typeof str === 'string') {
+        const trimmed = str.trim();
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(trimmed)) {
+          return trimmed;
+        }
+      }
+      const d = this.parseDateString(str);
+      if (!d || isNaN(d.getTime()) || d.getTime() === 0) return String(str);
+      return this.formatDateInput(d);
+    },
+
+    formatDateOnly(str) {
+      if (!str) return '-';
+      if (str instanceof Date) {
+        const day = String(str.getDate()).padStart(2, '0');
+        const month = String(str.getMonth() + 1).padStart(2, '0');
+        const year = str.getFullYear();
+        return `${day}/${month}/${year}`;
+      }
+      if (typeof str === 'string') {
+        const trimmed = str.trim();
+        const matchSlash = trimmed.match(/^(\d{1,2}\/\d{1,2}\/\d{4})/);
+        if (matchSlash) {
+          return matchSlash[1];
+        }
+      }
+      const d = this.parseDateString(str);
+      if (!d || isNaN(d.getTime()) || d.getTime() === 0) {
+        if (typeof str === 'string' && /^\d{4}-\d{2}-\d{2}/.test(str)) {
+          const parts = str.substring(0, 10).split('-');
+          return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return String(str);
+      }
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    },
+
+    parseDateString(str) {
+      if (!str) return new Date(0);
+      if (str instanceof Date) return str;
+      try {
+        if (typeof str === 'string') {
+          const parts = str.trim().split(' ');
+          const sep = parts[0].includes('/') ? '/' : (parts[0].includes('-') ? '-' : null);
+          if (sep) {
+            const dateParts = parts[0].split(sep);
+            if (dateParts.length === 3) {
+              if (dateParts[0].length === 4) {
+                return new Date(str);
+              }
+              const timeParts = (parts[1] || '00:00').split(':');
+              const day = parseInt(dateParts[0], 10);
+              const month = parseInt(dateParts[1], 10) - 1;
+              const year = parseInt(dateParts[2], 10);
+              const hours = parseInt(timeParts[0] || 0, 10);
+              const minutes = parseInt(timeParts[1] || 0, 10);
+              return new Date(year, month, day, hours, minutes);
+            }
+          }
+        }
+      } catch (e) {}
+      const fallback = new Date(str);
+      return isNaN(fallback.getTime()) ? new Date(0) : fallback;
+    },
+
+    toInputDateFormat(d) {
+      if (!d || isNaN(d.getTime())) d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    },
+
+    toInputTimeFormat(d) {
+      if (!d || isNaN(d.getTime())) d = new Date();
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${min}`;
+    },
+
+    openDatePicker(el) {
+      if (el && typeof el.showPicker === 'function') {
+        try {
+          el.showPicker();
+        } catch (e) {}
+      }
+    },
+
+    formatDateFromInputs(dateStr, timeStr) {
+      if (!dateStr) {
+        const now = new Date();
+        dateStr = this.toInputDateFormat(now);
+        timeStr = timeStr || this.toInputTimeFormat(now);
+      }
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const yyyy = parts[0];
+        const mm = parts[1];
+        const dd = parts[2];
+        const time = timeStr || '00:00';
+        return `${dd}/${mm}/${yyyy} ${time}`;
+      }
+      return dateStr;
+    },
+
+    setDateToday(formType) {
+      const now = new Date();
+      const dateStr = this.toInputDateFormat(now);
+      const timeStr = this.toInputTimeFormat(now);
+      if (formType === 'transfer') {
+        this.transferForm.TanggalDate = dateStr;
+        this.transferForm.TanggalTime = timeStr;
+      } else {
+        this.txnForm.TanggalDate = dateStr;
+        this.txnForm.TanggalTime = timeStr;
+      }
+    },
+
+    setDateYesterday(formType) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateStr = this.toInputDateFormat(yesterday);
+      const timeStr = this.toInputTimeFormat(yesterday);
+      if (formType === 'transfer') {
+        this.transferForm.TanggalDate = dateStr;
+        this.transferForm.TanggalTime = timeStr;
+      } else {
+        this.txnForm.TanggalDate = dateStr;
+        this.txnForm.TanggalTime = timeStr;
+      }
+    },
+
+    isDateToday(dateStr) {
+      if (!dateStr) return false;
+      return dateStr === this.toInputDateFormat(new Date());
+    },
+
+    isDateYesterday(dateStr) {
+      if (!dateStr) return false;
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      return dateStr === this.toInputDateFormat(d);
+    },
+
+    addTxnItem() {
+      const nextId = this.txnItems && this.txnItems.length > 0 ? Math.max(...this.txnItems.map(i => i.id)) + 1 : 1;
+      const defaultCat = this.categories.find(c => c.Tipe === this.txnForm.TipeTransaksi)?.CategoryID || '';
+      this.txnItems.push({
+        id: nextId,
+        Nominal: '',
+        CategoryID: defaultCat,
+        Deskripsi: ''
+      });
+    },
+
+    removeTxnItem(index) {
+      if (this.txnItems && this.txnItems.length > 1) {
+        this.txnItems.splice(index, 1);
+      }
+    },
+
+    setTxnType(type) {
+      this.txnForm.TipeTransaksi = type;
+      const defaultCat = this.categories.find(c => c.Tipe === type)?.CategoryID || '';
+      this.txnForm.CategoryID = defaultCat;
+      if (this.txnItems) {
+        this.txnItems.forEach(item => {
+          const cat = this.categories.find(c => c.CategoryID === item.CategoryID);
+          if (!cat || cat.Tipe !== type) {
+            item.CategoryID = defaultCat;
+          }
+        });
+      }
+    },
+
+    addQuickNominal(item, amount) {
+      item.Nominal = (Number(item.Nominal) || 0) + amount;
+    },
+
+    // Reset Form Helpers
+    resetTxnForm() {
+      this.isTxnTypeFixed = false;
+      const now = new Date();
+      const defaultCat = this.categories.find(c => c.Tipe === 'PENGELUARAN')?.CategoryID || '';
+      this.txnForm = {
+        TransactionID: '',
+        Tanggal: this.formatDateInput(now),
+        TanggalDate: this.toInputDateFormat(now),
+        TanggalTime: this.toInputTimeFormat(now),
+        TipeTransaksi: 'PENGELUARAN',
+        AccountID: this.accounts.length > 0 ? this.accounts[0].AccountID : '',
+        CategoryID: defaultCat,
+        Nominal: '',
+        Deskripsi: '',
+        BuktiUrl: ''
+      };
+      this.txnItems = [
+        { id: 1, Nominal: '', CategoryID: defaultCat, Deskripsi: '' }
+      ];
+    },
+
+    resetTransferForm() {
+      const now = new Date();
+      const fromAcc = this.accounts.length > 0 ? this.accounts[0].AccountID : '';
+      const toAcc = this.accounts.length > 1 ? this.accounts[1].AccountID : '';
+      this.transferForm = {
+        TransferID: '',
+        Tanggal: this.formatDateInput(now),
+        TanggalDate: this.toInputDateFormat(now),
+        TanggalTime: this.toInputTimeFormat(now),
+        FromAccountID: fromAcc,
+        ToAccountID: toAcc,
+        Nominal: '',
+        BiayaAdmin: 0,
+        Catatan: ''
+      };
+    },
+
+    resetAccountForm() {
+      this.accountForm = {
+        AccountID: '',
+        NamaAkun: '',
+        TipeAkun: 'BANK',
+        NomorAkun: '',
+        SaldoAwal: '',
+        Warna: '#2563eb',
+        Ikon: 'fa-building-columns'
+      };
+    },
+
+    onAccountTypeChange() {
+      if (this.accountForm.AccountID) return;
+      const t = this.accountForm.TipeAkun;
+      if (t === 'BANK') {
+        this.accountForm.Ikon = 'fa-building-columns';
+        this.accountForm.Warna = '#2563eb';
+      } else if (t === 'TUNAI') {
+        this.accountForm.Ikon = 'fa-wallet';
+        this.accountForm.Warna = '#059669';
+      } else if (t === 'EWALLET') {
+        this.accountForm.Ikon = 'fa-mobile-screen-button';
+        this.accountForm.Warna = '#0284c7';
+      } else if (t === 'INVESTASI') {
+        this.accountForm.Ikon = 'fa-chart-line';
+        this.accountForm.Warna = '#7c3aed';
+      }
+    },
+
+    resetCategoryForm(type = 'PENGELUARAN') {
+      this.categoryForm = {
+        CategoryID: '',
+        NamaKategori: '',
+        Tipe: type,
+        Ikon: type === 'PEMASUKAN' ? 'fa-money-bill-wave' : 'fa-utensils',
+        Warna: type === 'PEMASUKAN' ? '#10b981' : '#f97316',
+        BudgetBulanan: '',
+        Urutan: this.categories.length + 1,
+        IsActive: 'TRUE'
+      };
+    },
+
+    // MODAL OPENERS
+    openAddCategoryModal(type = 'PENGELUARAN') {
+      this.resetCategoryForm(type);
+      this.showCategoryModal = true;
+    },
+
+    openEditCategoryModal(cat) {
+      if (this.isSystemCategory(cat)) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Kategori Baku Sistem',
+          text: 'Kategori baku sistem dilindungi secara permanen dan tidak dapat diubah.',
+          confirmButtonColor: '#059669'
+        });
+        return;
+      }
+      this.categoryForm = {
+        CategoryID: cat.CategoryID,
+        NamaKategori: cat.NamaKategori,
+        Tipe: cat.Tipe,
+        Ikon: cat.Ikon || 'fa-tag',
+        Warna: cat.Warna || '#059669',
+        BudgetBulanan: cat.BudgetBulanan || '',
+        Urutan: cat.Urutan || 1,
+        IsActive: cat.IsActive || 'TRUE',
+        IsSystem: false
+      };
+      this.showCategoryModal = true;
+    },
+
+    openSetBudgetModal(targetCat = null) {
+      const expenseCats = this.categories.filter(c => c.Tipe === 'PENGELUARAN');
+      if (expenseCats.length === 0) {
+        Swal.fire({ icon: 'warning', title: 'Belum Ada Kategori', text: 'Tambahkan kategori pengeluaran terlebih dahulu di Master Data Kategori.' });
+        return;
+      }
+
+      const selected = targetCat 
+        ? (expenseCats.find(c => c.CategoryID === targetCat.CategoryID) || targetCat)
+        : expenseCats[0];
+
+      const breakdown = this.categoryBreakdown.find(b => b.CategoryID === selected.CategoryID);
+      const spent = breakdown ? breakdown.spent : 0;
+
+      this.budgetForm = {
+        CategoryID: selected.CategoryID,
+        NamaKategori: selected.NamaKategori,
+        Ikon: selected.Ikon || 'fa-tag',
+        Warna: selected.Warna || '#059669',
+        spent: spent,
+        BudgetBulanan: selected.BudgetBulanan ? Number(selected.BudgetBulanan) : ''
+      };
+
+      this.showBudgetModal = true;
+    },
+
+    onBudgetCategoryChange() {
+      const cat = this.categories.find(c => c.CategoryID === this.budgetForm.CategoryID);
+      if (cat) {
+        const breakdown = this.categoryBreakdown.find(b => b.CategoryID === cat.CategoryID);
+        this.budgetForm.NamaKategori = cat.NamaKategori;
+        this.budgetForm.Ikon = cat.Ikon || 'fa-tag';
+        this.budgetForm.Warna = cat.Warna || '#059669';
+        this.budgetForm.spent = breakdown ? breakdown.spent : 0;
+        this.budgetForm.BudgetBulanan = cat.BudgetBulanan ? Number(cat.BudgetBulanan) : '';
+      }
+    },
+
+    async saveBudgetSetting() {
+      if (!this.budgetForm.CategoryID) return;
+      const cat = this.allCategories.find(c => c.CategoryID === this.budgetForm.CategoryID);
+      if (!cat) return;
+
+      this.isLoading = true;
+      try {
+        const newBudget = Number(this.budgetForm.BudgetBulanan) || 0;
+        cat.BudgetBulanan = newBudget;
+
+        this.refreshActiveWalletData();
+        this.saveLocalData();
+
+        try {
+          await runApi('saveCategory', [cat]);
+        } catch (e) {
+          console.warn('Sync budget ke cloud gagal/offline:', e);
+        }
+
+        this.showBudgetModal = false;
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Anggaran Tersimpan!',
+          text: newBudget > 0
+            ? `Batas anggaran bulanan untuk ${cat.NamaKategori} diset ke ${this.formatRupiah(newBudget)}.`
+            : `Batas anggaran bulanan untuk ${cat.NamaKategori} dinonaktifkan (Tanpa Limit).`,
+          timer: 1800,
+          showConfirmButton: false
+        });
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    openAddTxnModal(type = 'PENGELUARAN', isFixed = false) {
+      this.resetTxnForm();
+      this.txnForm.TipeTransaksi = type;
+      this.isTxnTypeFixed = !!isFixed;
+      const defaultCat = this.categories.find(c => c.Tipe === type)?.CategoryID || '';
+      this.txnForm.CategoryID = defaultCat;
+      this.txnItems = [
+        { id: 1, Nominal: '', CategoryID: defaultCat, Deskripsi: '' }
+      ];
+      this.showTxnModal = true;
+    },
+
+    openTransferModal(fromAccId = null) {
+      this.resetTransferForm();
+      if (fromAccId) {
+        this.transferForm.FromAccountID = fromAccId;
+        const other = this.accounts.find(a => a.AccountID !== fromAccId);
+        if (other) this.transferForm.ToAccountID = other.AccountID;
+      }
+      this.showTransferModal = true;
+    },
+
+    openAddAccountModal() {
+      this.resetAccountForm();
+      this.showAccountModal = true;
+    },
+
+    openEditAccountModal(acc) {
+      this.accountForm = {
+        AccountID: acc.AccountID,
+        NamaAkun: acc.NamaAkun,
+        TipeAkun: acc.TipeAkun,
+        NomorAkun: acc.NomorAkun,
+        SaldoAwal: acc.SaldoAwal,
+        Warna: acc.Warna || (acc.TipeAkun === 'BANK' ? '#2563eb' : (acc.TipeAkun === 'EWALLET' ? '#0284c7' : (acc.TipeAkun === 'INVESTASI' ? '#7c3aed' : '#059669'))),
+        Ikon: acc.Ikon || (acc.TipeAkun === 'TUNAI' ? 'fa-wallet' : (acc.TipeAkun === 'EWALLET' ? 'fa-mobile-screen-button' : (acc.TipeAkun === 'INVESTASI' ? 'fa-chart-line' : 'fa-building-columns')))
+      };
+      this.showAccountModal = true;
+    },
+
+    async deleteAccountItem(acc) {
+      if (!this.canDeleteAccount) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Akses Ditolak',
+          text: 'Peran Pengguna (User) tidak memiliki izin untuk menghapus akun keuangan. Anda hanya dapat menambah atau mengedit akun.'
+        });
+        return;
+      }
+
+      const txnCount = this.allTransactions.filter(t => t.AccountID === acc.AccountID).length;
+      const trfCount = this.allTransfers.filter(tr => tr.FromAccountID === acc.AccountID || tr.ToAccountID === acc.AccountID).length;
+      const totalMutasi = txnCount + trfCount;
+
+      let warningText = `Akun "${acc.NamaAkun}" akan dihapus secara permanen.`;
+      if (totalMutasi > 0) {
+        warningText = `Akun "${acc.NamaAkun}" memiliki ${totalMutasi} transaksi/transfer terkait. Akun akan dihapus dari daftar rekening aktif.`;
+      }
+
+      const confirm = await Swal.fire({
+        title: `Hapus Akun "${acc.NamaAkun}"?`,
+        text: warningText,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        confirmButtonText: 'Ya, Hapus Akun',
+        cancelButtonText: 'Batal'
+      });
+
+      if (!confirm.isConfirmed) return;
+
+      this.isLoading = true;
+      this.allAccounts = this.allAccounts.filter(a => a.AccountID !== acc.AccountID);
+      this.refreshActiveWalletData();
+      this.saveLocalData();
+
+      try {
+        await runApi('deleteAccount', [acc.AccountID, this.currentUser ? this.currentUser.Role : 'user']);
+      } catch (e) {
+        console.warn('Sync delete account offline/failed:', e);
+      }
+
+      this.isLoading = false;
+      Swal.fire({
+        icon: 'success',
+        title: 'Akun Berhasil Dihapus',
+        text: `Akun "${acc.NamaAkun}" berhasil dihapus.`,
+        timer: 1600,
+        showConfirmButton: false
+      });
+    },
+
+    openDetailModal(item) {
+      this.selectedDetailItem = item;
+      this.showDetailModal = true;
+    },
+
+    openEditHistoryItem(item) {
+      if (!item) return;
+      if (this.showDetailModal) {
+        this.showDetailModal = false;
+      }
+      if (item.id && String(item.id).startsWith('TXN-ADM-')) {
+        const trfId = String(item.id).replace('TXN-ADM-', '');
+        const linkedTrf = this.allTransfers.find(t => t.TransferID === trfId);
+        if (linkedTrf) {
+          const parsed = this.parseDateString(linkedTrf.Tanggal);
+          this.transferForm = {
+            TransferID: linkedTrf.TransferID,
+            Tanggal: linkedTrf.Tanggal,
+            TanggalDate: this.toInputDateFormat(parsed),
+            TanggalTime: this.toInputTimeFormat(parsed),
+            FromAccountID: linkedTrf.FromAccountID,
+            ToAccountID: linkedTrf.ToAccountID,
+            Nominal: Number(linkedTrf.Nominal) || '',
+            BiayaAdmin: Number(linkedTrf.BiayaAdmin) || 0,
+            Catatan: linkedTrf.Catatan || ''
+          };
+          this.showTransferModal = true;
+          return;
+        }
+      }
+      if (item.itemType === 'TRANSFER') {
+        const raw = item.raw || this.transfers.find(t => t.TransferID === item.id);
+        if (!raw) return;
+        const parsed = this.parseDateString(raw.Tanggal);
+        this.transferForm = {
+          TransferID: raw.TransferID,
+          Tanggal: raw.Tanggal,
+          TanggalDate: this.toInputDateFormat(parsed),
+          TanggalTime: this.toInputTimeFormat(parsed),
+          FromAccountID: raw.FromAccountID,
+          ToAccountID: raw.ToAccountID,
+          Nominal: Number(raw.Nominal) || '',
+          BiayaAdmin: Number(raw.BiayaAdmin) || 0,
+          Catatan: raw.Catatan || ''
+        };
+        this.showTransferModal = true;
+      } else {
+        const raw = item.raw || this.transactions.find(t => t.TransactionID === item.id);
+        if (!raw) return;
+        const parsed = this.parseDateString(raw.Tanggal);
+        this.isTxnTypeFixed = true;
+        this.txnForm = {
+          TransactionID: raw.TransactionID,
+          Tanggal: raw.Tanggal,
+          TanggalDate: this.toInputDateFormat(parsed),
+          TanggalTime: this.toInputTimeFormat(parsed),
+          TipeTransaksi: raw.TipeTransaksi || 'PENGELUARAN',
+          AccountID: raw.AccountID,
+          CategoryID: raw.CategoryID,
+          Nominal: Number(raw.Nominal) || '',
+          Deskripsi: raw.Deskripsi || '',
+          BuktiUrl: raw.BuktiUrl || ''
+        };
+        this.txnItems = [
+          { id: 1, Nominal: Number(raw.Nominal) || '', CategoryID: raw.CategoryID, Deskripsi: raw.Deskripsi || '' }
+        ];
+        this.showTxnModal = true;
+      }
+    },
+
+    // AKSI TRANSAKSI (PEMASUKAN & PENGELUARAN - SINGLE & MULTI ITEM)
+    async submitTransaction() {
+      if (!this.txnForm.AccountID) {
+        Swal.fire({ icon: 'warning', title: 'Pilih Akun', text: 'Tentukan akun yang digunakan untuk transaksi ini' });
+        return;
+      }
+
+      // Validasi item nominal
+      const validItems = (this.txnItems || []).filter(item => Number(item.Nominal) > 0);
+      if (validItems.length === 0) {
+        Swal.fire({ icon: 'warning', title: 'Nominal Kosong', text: 'Masukkan nominal transaksi lebih dari 0' });
+        return;
+      }
+
+      const invalidItem = (this.txnItems || []).find(item => !item.Nominal || Number(item.Nominal) <= 0);
+      if (invalidItem) {
+        Swal.fire({ icon: 'warning', title: 'Periksa Nominal Item', text: 'Terdapat baris transaksi dengan nominal 0 atau belum terisi.' });
+        return;
+      }
+
+      const totalNominal = this.totalBatchNominal;
+      const targetAcc = this.allAccounts.find(a => a.AccountID === this.txnForm.AccountID);
+      const isEdit = !!this.txnForm.TransactionID;
+
+      this.isLoading = true;
+
+      // Cek saldo jika pengeluaran
+      if (this.txnForm.TipeTransaksi === 'PENGELUARAN' && targetAcc) {
+        let currentBalance = Number(targetAcc.SaldoSekarang) || 0;
+        if (isEdit) {
+          const oldTxn = this.allTransactions.find(t => t.TransactionID === this.txnForm.TransactionID);
+          if (oldTxn && oldTxn.AccountID === targetAcc.AccountID) {
+            currentBalance += (oldTxn.TipeTransaksi === 'PEMASUKAN' ? -Number(oldTxn.Nominal) : Number(oldTxn.Nominal));
+          }
+        }
+        if (currentBalance < totalNominal) {
+          const proceed = await Swal.fire({
+            title: 'Saldo Tidak Cukup?',
+            text: `Saldo di ${targetAcc.NamaAkun} saat ini ${this.formatRupiah(targetAcc.SaldoSekarang)}, transaksi total ${this.formatRupiah(totalNominal)} akan membuat saldo minus. Lanjutkan?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Ya, Tetap Simpan',
+            cancelButtonText: 'Batal'
+          });
+          if (!proceed.isConfirmed) {
+            this.isLoading = false;
+            return;
+          }
+        }
+      }
+
+      const formattedTanggal = this.formatDateFromInputs(this.txnForm.TanggalDate, this.txnForm.TanggalTime);
+      const timestamp = new Date().getTime();
+      const createdPayloads = [];
+
+      if (isEdit) {
+        // Mode Edit: Update single transaction
+        const oldIdx = this.allTransactions.findIndex(t => t.TransactionID === this.txnForm.TransactionID);
+        if (oldIdx !== -1) {
+          const oldTxn = this.allTransactions[oldIdx];
+          const oldAccount = this.allAccounts.find(a => a.AccountID === oldTxn.AccountID);
+          if (oldAccount) {
+            const revertDelta = (oldTxn.TipeTransaksi === 'PEMASUKAN') ? -Number(oldTxn.Nominal) : Number(oldTxn.Nominal);
+            oldAccount.SaldoSekarang = (Number(oldAccount.SaldoSekarang) || 0) + revertDelta;
+          }
+        }
+
+        const firstItem = this.txnItems[0];
+        const catObj = this.categories.find(c => c.CategoryID === firstItem.CategoryID);
+        const defaultName = catObj ? catObj.NamaKategori : (this.txnForm.TipeTransaksi === 'PEMASUKAN' ? 'Pemasukan' : 'Pengeluaran');
+        const deskripsi = (firstItem.Deskripsi && firstItem.Deskripsi.trim()) ? firstItem.Deskripsi.trim() : defaultName;
+
+        const payload = {
+          TransactionID: this.txnForm.TransactionID,
+          WalletID: this.activeWalletId,
+          Tanggal: formattedTanggal,
+          TipeTransaksi: this.txnForm.TipeTransaksi,
+          AccountID: this.txnForm.AccountID,
+          CategoryID: firstItem.CategoryID || this.txnForm.CategoryID,
+          Nominal: Number(firstItem.Nominal),
+          Deskripsi: deskripsi,
+          BuktiUrl: this.txnForm.BuktiUrl || '',
+          KasirUsername: this.currentUser ? this.currentUser.Username : 'superadmin'
+        };
+
+        if (oldIdx !== -1) {
+          this.allTransactions[oldIdx] = payload;
+        }
+        const delta = (payload.TipeTransaksi === 'PEMASUKAN') ? payload.Nominal : -payload.Nominal;
+        if (targetAcc) {
+          targetAcc.SaldoSekarang = (Number(targetAcc.SaldoSekarang) || 0) + delta;
+        }
+        createdPayloads.push(payload);
+
+      } else {
+        // Mode Baru: Simpan multi-transaksi / batch
+        this.txnItems.forEach((item, idx) => {
+          const txnId = 'TXN-' + (timestamp + idx);
+          const catObj = this.categories.find(c => c.CategoryID === item.CategoryID);
+          const defaultName = catObj ? catObj.NamaKategori : (this.txnForm.TipeTransaksi === 'PEMASUKAN' ? 'Pemasukan' : 'Pengeluaran');
+          const deskripsi = (item.Deskripsi && item.Deskripsi.trim()) ? item.Deskripsi.trim() : defaultName;
+
+          const payload = {
+            TransactionID: txnId,
+            WalletID: this.activeWalletId,
+            Tanggal: formattedTanggal,
+            TipeTransaksi: this.txnForm.TipeTransaksi,
+            AccountID: this.txnForm.AccountID,
+            CategoryID: item.CategoryID || this.txnForm.CategoryID,
+            Nominal: Number(item.Nominal),
+            Deskripsi: deskripsi,
+            BuktiUrl: this.txnForm.BuktiUrl || '',
+            KasirUsername: this.currentUser ? this.currentUser.Username : 'superadmin'
+          };
+
+          this.allTransactions.unshift(payload);
+          createdPayloads.push(payload);
+        });
+
+        const delta = (this.txnForm.TipeTransaksi === 'PEMASUKAN') ? totalNominal : -totalNominal;
+        if (targetAcc) {
+          targetAcc.SaldoSekarang = (Number(targetAcc.SaldoSekarang) || 0) + delta;
+        }
+      }
+
+      this.refreshActiveWalletData();
+      this.saveLocalData();
+
+      // Sync cloud untuk setiap transaksi
+      for (const p of createdPayloads) {
+        try {
+          await runApi('saveTransaction', [p]);
+        } catch (e) {
+          console.warn('Sync cloud transaksi offline:', e);
+        }
+      }
+
+      this.isLoading = false;
+      this.showTxnModal = false;
+
+      const count = createdPayloads.length;
+      const tipeStr = this.txnForm.TipeTransaksi === 'PEMASUKAN' ? 'Pemasukan' : 'Pengeluaran';
+      Swal.fire({
+        icon: 'success',
+        title: count > 1 ? `${count} Transaksi Tersimpan!` : 'Transaksi Tersimpan!',
+        text: count > 1
+          ? `Sebanyak ${count} transaksi ${tipeStr} dengan total ${this.formatRupiah(totalNominal)} berhasil dicatat.`
+          : `Transaksi ${tipeStr} senilai ${this.formatRupiah(totalNominal)} berhasil dicatat.`,
+        timer: 2000,
+        showConfirmButton: false
+      });
+    },
+
+    // AKSI PINDAH DANA (TRANSFER ANTAR AKUN)
+    async submitTransfer() {
+      const nominal = Number(this.transferForm.Nominal);
+      const biayaAdmin = Number(this.transferForm.BiayaAdmin) || 0;
+      const totalKeluar = nominal + biayaAdmin;
+
+      if (!this.transferForm.FromAccountID || !this.transferForm.ToAccountID) {
+        Swal.fire({ icon: 'warning', title: 'Pilih Akun', text: 'Tentukan akun pengirim dan akun tujuan' });
+        return;
+      }
+
+      if (this.transferForm.FromAccountID === this.transferForm.ToAccountID) {
+        Swal.fire({ icon: 'warning', title: 'Akun Sama', text: 'Akun asal dan akun tujuan tidak boleh sama' });
+        return;
+      }
+
+      if (!nominal || nominal <= 0) {
+        Swal.fire({ icon: 'warning', title: 'Nominal Kosong', text: 'Masukkan nominal transfer lebih dari 0' });
+        return;
+      }
+
+      const isEdit = !!this.transferForm.TransferID;
+      let oldTrf = null;
+      let oldIdx = -1;
+      let oldFromAcc = null;
+      let oldToAcc = null;
+      let oldTotalKeluar = 0;
+      let oldNominal = 0;
+
+      if (isEdit) {
+        oldIdx = this.allTransfers.findIndex(t => t.TransferID === this.transferForm.TransferID);
+        if (oldIdx !== -1) {
+          oldTrf = this.allTransfers[oldIdx];
+          oldFromAcc = this.allAccounts.find(a => a.AccountID === oldTrf.FromAccountID);
+          oldToAcc = this.allAccounts.find(a => a.AccountID === oldTrf.ToAccountID);
+          oldNominal = Number(oldTrf.Nominal) || 0;
+          oldTotalKeluar = Number(oldTrf.TotalKeluar) || (oldNominal + (Number(oldTrf.BiayaAdmin) || 0));
+
+          if (oldFromAcc) oldFromAcc.SaldoSekarang = (Number(oldFromAcc.SaldoSekarang) || 0) + oldTotalKeluar;
+          if (oldToAcc) oldToAcc.SaldoSekarang = (Number(oldToAcc.SaldoSekarang) || 0) - oldNominal;
+        }
+      }
+
+      const fromAcc = this.allAccounts.find(a => a.AccountID === this.transferForm.FromAccountID);
+      const toAcc = this.allAccounts.find(a => a.AccountID === this.transferForm.ToAccountID);
+
+      if (!fromAcc || !toAcc) {
+        if (isEdit) {
+          if (oldFromAcc) oldFromAcc.SaldoSekarang = (Number(oldFromAcc.SaldoSekarang) || 0) - oldTotalKeluar;
+          if (oldToAcc) oldToAcc.SaldoSekarang = (Number(oldToAcc.SaldoSekarang) || 0) + oldNominal;
+        }
+        Swal.fire({ icon: 'error', title: 'Data Akun Error', text: 'Akun yang dipilih tidak valid' });
+        return;
+      }
+
+      // Validasi Saldo Asal
+      if (Number(fromAcc.SaldoSekarang) < totalKeluar) {
+        if (isEdit) {
+          if (oldFromAcc) oldFromAcc.SaldoSekarang = (Number(oldFromAcc.SaldoSekarang) || 0) - oldTotalKeluar;
+          if (oldToAcc) oldToAcc.SaldoSekarang = (Number(oldToAcc.SaldoSekarang) || 0) + oldNominal;
+        }
+        Swal.fire({
+          icon: 'error',
+          title: 'Saldo Tidak Cukup',
+          html: `Saldo di <b>${fromAcc.NamaAkun}</b> adalah <b>${this.formatRupiah(fromAcc.SaldoSekarang)}</b>.<br>Total yang dibutuhkan (Transfer + Biaya Admin): <b>${this.formatRupiah(totalKeluar)}</b>`
+        });
+        return;
+      }
+
+      this.isLoading = true;
+
+      // Update Saldo Baru
+      fromAcc.SaldoSekarang = (Number(fromAcc.SaldoSekarang) || 0) - totalKeluar;
+      toAcc.SaldoSekarang = (Number(toAcc.SaldoSekarang) || 0) + nominal;
+
+      const trfId = this.transferForm.TransferID || ('TRF-' + new Date().getTime());
+      const formattedTanggal = this.formatDateFromInputs(this.transferForm.TanggalDate, this.transferForm.TanggalTime);
+      const payload = {
+        TransferID: trfId,
+        WalletID: this.activeWalletId,
+        Tanggal: formattedTanggal,
+        FromAccountID: this.transferForm.FromAccountID,
+        ToAccountID: this.transferForm.ToAccountID,
+        Nominal: nominal,
+        BiayaAdmin: biayaAdmin,
+        TotalKeluar: totalKeluar,
+        Catatan: this.transferForm.Catatan || 'Pindah Dana',
+        KasirUsername: this.currentUser ? this.currentUser.Username : 'superadmin'
+      };
+
+      if (isEdit && oldIdx !== -1) {
+        this.allTransfers[oldIdx] = payload;
+      } else {
+        this.allTransfers.unshift(payload);
+      }
+
+      // Sinkronkan transaksi pengeluaran biaya admin ke allTransactions dengan kategori Admin Bank
+      const admTxnId = 'TXN-ADM-' + trfId;
+      this.allTransactions = this.allTransactions.filter(t => t.TransactionID !== admTxnId);
+      if (biayaAdmin > 0) {
+        const adminCat = this.getAdminBankCategory(this.activeWalletId);
+        const adminCatId = adminCat ? adminCat.CategoryID : 'CAT-OUT-7';
+        this.allTransactions.unshift({
+          TransactionID: admTxnId,
+          WalletID: this.activeWalletId,
+          Tanggal: formattedTanggal,
+          TipeTransaksi: 'PENGELUARAN',
+          AccountID: this.transferForm.FromAccountID,
+          CategoryID: adminCatId,
+          Nominal: biayaAdmin,
+          Deskripsi: `Biaya Admin Transfer (${fromAcc.NamaAkun} → ${toAcc.NamaAkun})`,
+          BuktiUrl: '',
+          KasirUsername: this.currentUser ? this.currentUser.Username : 'superadmin',
+          IsSystem: 'TRUE',
+          IsTransferAdmin: true
+        });
+      }
+
+      this.refreshActiveWalletData();
+      this.saveLocalData();
+
+      try {
+        await runApi('saveTransfer', [payload]);
+      } catch (e) {
+        console.warn('Sync cloud transfer gagal/offline:', e);
+      }
+
+      this.isLoading = false;
+      this.showTransferModal = false;
+
+      Swal.fire({
+        icon: 'success',
+        title: isEdit ? 'Pindah Dana Diperbarui!' : 'Pindah Dana Berhasil!',
+        html: `Berhasil ${isEdit ? 'memperbarui data' : 'memindahkan'} <b>${this.formatRupiah(nominal)}</b> dari <b>${fromAcc.NamaAkun}</b> ke <b>${toAcc.NamaAkun}</b>!`,
+        timer: 2000,
+        showConfirmButton: false
+      });
+    },
+
+    // AKSI KELOLA AKUN
+    async submitAccount() {
+      if (!this.accountForm.NamaAkun.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Nama Akun Wajib Diisi' });
+        return;
+      }
+
+      this.isLoading = true;
+      try {
+        const isEdit = !!this.accountForm.AccountID;
+        const accId = this.accountForm.AccountID || ('ACC-' + new Date().getTime());
+        const saldoAwal = Number(this.accountForm.SaldoAwal) || 0;
+
+        let saldoSekarang = saldoAwal;
+        if (isEdit) {
+          const existingAcc = this.allAccounts.find(a => a.AccountID === accId);
+          const oldSaldoAwal = Number(existingAcc?.SaldoAwal) || 0;
+          const oldSaldoSekarang = Number(existingAcc?.SaldoSekarang !== undefined ? existingAcc.SaldoSekarang : oldSaldoAwal);
+          const diffSaldoAwal = saldoAwal - oldSaldoAwal;
+          saldoSekarang = oldSaldoSekarang + diffSaldoAwal;
+        }
+
+        const payload = {
+          AccountID: accId,
+          WalletID: this.activeWalletId,
+          NamaAkun: this.accountForm.NamaAkun.trim(),
+          TipeAkun: this.accountForm.TipeAkun,
+          NomorAkun: this.accountForm.NomorAkun || '-',
+          SaldoAwal: saldoAwal,
+          SaldoSekarang: saldoSekarang,
+          Warna: this.accountForm.Warna || '#059669',
+          Ikon: this.accountForm.Ikon || 'fa-building-columns',
+          IsActive: 'TRUE'
+        };
+
+        if (isEdit) {
+          const idx = this.allAccounts.findIndex(a => a.AccountID === accId);
+          if (idx !== -1) {
+            this.allAccounts[idx] = { ...this.allAccounts[idx], ...payload };
+          }
+        } else {
+          this.allAccounts.push(payload);
+        }
+
+        this.refreshActiveWalletData();
+        this.saveLocalData();
+
+        try {
+          await runApi('saveAccount', [payload]);
+        } catch (e) {
+          console.warn('Sync akun ke cloud gagal/offline:', e);
+        }
+
+        this.showAccountModal = false;
+        Swal.fire({
+          icon: 'success',
+          title: isEdit ? 'Akun Diperbarui!' : 'Akun Baru Ditambahkan!',
+          timer: 1500,
+          showConfirmButton: false
+        });
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    // AKSI KELOLA KATEGORI (MASTER DATA)
+    async submitCategory() {
+      if (!this.categoryForm.NamaKategori.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Nama Kategori Wajib Diisi' });
+        return;
+      }
+
+      this.isLoading = true;
+      try {
+        const isEdit = !!this.categoryForm.CategoryID;
+        const catId = this.categoryForm.CategoryID || ('CAT-' + new Date().getTime());
+        const budget = Number(this.categoryForm.BudgetBulanan) || 0;
+
+        let finalName = this.categoryForm.NamaKategori.trim();
+        let finalType = this.categoryForm.Tipe;
+        let isSys = 'FALSE';
+
+        if (isEdit) {
+          const oldCat = this.allCategories.find(c => c.CategoryID === catId);
+          if (oldCat && this.isSystemCategory(oldCat)) {
+            Swal.fire({
+              icon: 'warning',
+              title: 'Kategori Baku Sistem',
+              text: 'Kategori baku sistem dilindungi secara permanen dan tidak dapat diubah.',
+              confirmButtonColor: '#059669'
+            });
+            this.isLoading = false;
+            return;
+          }
+        } else {
+          if (this.isSystemCategory({ NamaKategori: finalName })) {
+            Swal.fire({
+              icon: 'warning',
+              title: 'Nama Kategori Dipesan',
+              text: `Nama "${finalName}" merupakan kategori baku sistem yang sudah dipesan.`,
+              confirmButtonColor: '#059669'
+            });
+            this.isLoading = false;
+            return;
+          }
+        }
+
+        const payload = {
+          CategoryID: catId,
+          WalletID: this.activeWalletId,
+          NamaKategori: finalName,
+          Tipe: finalType,
+          Ikon: this.categoryForm.Ikon || 'fa-tag',
+          Warna: this.categoryForm.Warna || '#059669',
+          BudgetBulanan: budget,
+          Urutan: Number(this.categoryForm.Urutan) || 1,
+          IsActive: 'TRUE',
+          IsSystem: isSys
+        };
+
+        if (isEdit) {
+          const idx = this.allCategories.findIndex(c => c.CategoryID === catId);
+          if (idx !== -1) {
+            this.allCategories[idx] = { ...this.allCategories[idx], ...payload };
+          }
+        } else {
+          this.allCategories.push(payload);
+        }
+
+        this.refreshActiveWalletData();
+        this.saveLocalData();
+
+        try {
+          await runApi('saveCategory', [payload]);
+        } catch (e) {
+          console.warn('Sync kategori gagal/offline:', e);
+        }
+
+        this.showCategoryModal = false;
+        Swal.fire({
+          icon: 'success',
+          title: isEdit ? 'Kategori Diperbarui!' : 'Kategori Baru Ditambahkan!',
+          timer: 1500,
+          showConfirmButton: false
+        });
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    async deleteCategoryItem(cat) {
+      if (this.isSystemCategory(cat)) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Kategori Sistem Baku',
+          html: `Kategori <b>${cat.NamaKategori}</b> merupakan kategori baku sistem yang diperlukan untuk pembukuan dan laporan keuangan, sehingga <b>tidak dapat dihapus</b>.`
+        });
+        return;
+      }
+
+      if (!this.canDeleteCategory) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Akses Ditolak',
+          text: 'Peran Pengguna (User) tidak memiliki izin untuk menghapus kategori master. Anda hanya dapat menambah atau mengedit kategori.'
+        });
+        return;
+      }
+
+      const usedCount = this.transactions.filter(t => t.CategoryID === cat.CategoryID).length;
+      if (usedCount > 0) {
+        const warn = await Swal.fire({
+          title: 'Kategori Sedang Digunakan',
+          html: `Kategori <b>${cat.NamaKategori}</b> saat ini dipakai di <b>${usedCount} transaksi</b>.<br>Jika dihapus, transaksi terkait akan tetap ada namun tanpa nama kategori ini. Lanjutkan?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#ef4444',
+          confirmButtonText: 'Ya, Tetap Hapus',
+          cancelButtonText: 'Batal'
+        });
+        if (!warn.isConfirmed) return;
+      } else {
+        const confirm = await Swal.fire({
+          title: 'Hapus Kategori?',
+          text: `Kategori "${cat.NamaKategori}" akan dihapus dari daftar master data.`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonColor: '#ef4444',
+          confirmButtonText: 'Hapus',
+          cancelButtonText: 'Batal'
+        });
+        if (!confirm.isConfirmed) return;
+      }
+
+      this.allCategories = this.allCategories.filter(c => c.CategoryID !== cat.CategoryID);
+      this.refreshActiveWalletData();
+      this.saveLocalData();
+
+      try {
+        await runApi('deleteCategory', [cat.CategoryID, this.currentUser ? this.currentUser.Role : 'user']);
+      } catch (e) {}
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Kategori Berhasil Dihapus',
+        timer: 1400,
+        showConfirmButton: false
+      });
+    },
+
+    // HAPUS TRANSAKSI & REVERT SALDO
+    async deleteHistoryItem(item) {
+      if (item.id && String(item.id).startsWith('TXN-ADM-')) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Terikat Pindah Dana',
+          text: 'Biaya admin ini terhubung langsung dengan transaksi Pindah Dana. Untuk menghapus atau mengubah biaya admin, silakan batalkan atau ubah transaksi Pindah Dana terkait.'
+        });
+        return;
+      }
+
+      const confirm = await Swal.fire({
+        title: 'Hapus Catatan Ini?',
+        text: `Data ${item.tipe === 'PINDAH_DANA' ? 'Pindah Dana' : 'Transaksi'} sebesar ${this.formatRupiah(item.nominal)} akan dihapus dan saldo akun akan dikembalikan ke kondisi semula.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Ya, Hapus',
+        cancelButtonText: 'Batal'
+      });
+
+      if (!confirm.isConfirmed) return;
+
+      this.isLoading = true;
+
+      if (item.itemType === 'TRANSFER') {
+        const fromAcc = this.allAccounts.find(a => a.AccountID === item.raw.FromAccountID);
+        const toAcc = this.allAccounts.find(a => a.AccountID === item.raw.ToAccountID);
+        if (fromAcc) fromAcc.SaldoSekarang = Number(fromAcc.SaldoSekarang) + Number(item.raw.TotalKeluar);
+        if (toAcc) toAcc.SaldoSekarang = Number(toAcc.SaldoSekarang) - Number(item.raw.Nominal);
+
+        this.allTransfers = this.allTransfers.filter(tr => tr.TransferID !== item.id);
+        const admTxnId = 'TXN-ADM-' + item.id;
+        this.allTransactions = this.allTransactions.filter(t => t.TransactionID !== admTxnId);
+
+        try {
+          await runApi('deleteTransfer', [item.id]);
+        } catch (e) {}
+      } else {
+        const acc = this.allAccounts.find(a => a.AccountID === item.raw.AccountID);
+        if (acc) {
+          const delta = (item.raw.TipeTransaksi === 'PEMASUKAN') ? -Number(item.raw.Nominal) : Number(item.raw.Nominal);
+          acc.SaldoSekarang = Number(acc.SaldoSekarang) + delta;
+        }
+
+        this.allTransactions = this.allTransactions.filter(t => t.TransactionID !== item.id);
+        try {
+          await runApi('deleteTransaction', [item.id]);
+        } catch (e) {}
+      }
+
+      this.refreshActiveWalletData();
+      this.saveLocalData();
+      this.isLoading = false;
+      if (this.showDetailModal) this.showDetailModal = false;
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Berhasil Dihapus',
+        text: 'Saldo akun telah disesuaikan kembali',
+        timer: 1500,
+        showConfirmButton: false
+      });
+    },
+
+    setQuickNominal(target, amount) {
+      if (target === 'transfer') {
+        if (amount === 'all') {
+          this.setTransferAllBalance();
+          return;
+        }
+        this.transferForm.Nominal = amount;
+      } else if (target === 'txn') {
+        this.txnForm.Nominal = amount;
+      }
+    },
+
+    setTransferAllBalance() {
+      // Jika akun asal belum dipilih, otomatis gunakan akun pertama yang tersedia
+      if (!this.transferForm.FromAccountID && this.accounts && this.accounts.length > 0) {
+        this.transferForm.FromAccountID = this.accounts[0].AccountID;
+        if (!this.transferForm.ToAccountID && this.accounts.length > 1) {
+          this.transferForm.ToAccountID = this.accounts[1].AccountID;
+        }
+      }
+      if (!this.transferForm.FromAccountID) return;
+      const fromAcc = (this.accounts || []).find(a => a.AccountID === this.transferForm.FromAccountID) ||
+                      (this.allAccounts || []).find(a => a.AccountID === this.transferForm.FromAccountID);
+      if (!fromAcc) return;
+      const saldo = Number(fromAcc.SaldoSekarang) || 0;
+      const admin = Number(this.transferForm.BiayaAdmin) || 0;
+      const transferAmount = (admin > 0 && saldo > admin) ? (saldo - admin) : saldo;
+      this.transferForm.Nominal = transferAmount > 0 ? transferAmount : (saldo > 0 ? saldo : 0);
+    },
+
+    // ================= CADANGAN & ARSIP TAHUNAN METHODS =================
+    extractYearFromStr(dateStr) {
+      if (!dateStr) return null;
+      const d = this.parseDateString(dateStr);
+      if (!isNaN(d.getTime())) return d.getFullYear();
+      return null;
+    },
+
+    async loadArchiveYears() {
+      try {
+        const res = await runApi('getArchiveYears');
+        if (res && res.success && Array.isArray(res.years)) {
+          this.archiveYears = res.years;
+          this.archivesList = res.archives || [];
+        } else {
+          const stored = localStorage.getItem('DOMPETKU_ARCHIVES');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            this.archiveYears = Object.keys(parsed).map(Number).sort((a, b) => b - a);
+            this.archivesList = Object.values(parsed).map(p => p.meta);
+          }
+        }
+      } catch (e) {
+        console.warn('Error loadArchiveYears:', e);
+      }
+    },
+
+    async selectArchiveYear(year) {
+      if (year === null || year === '' || year === 'active') {
+        this.selectedArchiveYear = null;
+        this.archiveData = null;
+        this.refreshActiveWalletData();
+        return;
+      }
+      this.isLoadingArchive = true;
+      try {
+        const y = Number(year);
+        let data = null;
+        const res = await runApi('getArchiveData', [y]);
+        if (res && res.success) {
+          data = res;
+        } else {
+          const stored = localStorage.getItem('DOMPETKU_ARCHIVES');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed[y]) data = parsed[y];
+          }
+        }
+
+        if (data) {
+          this.selectedArchiveYear = y;
+          this.archiveData = data;
+          this.refreshActiveWalletData();
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'Gagal Memuat Arsip',
+            text: 'Data arsip tahun ' + y + ' tidak ditemukan.',
+            customClass: { popup: 'swal2-modern-card' }
+          });
+        }
+      } finally {
+        this.isLoadingArchive = false;
+      }
+    },
+
+    async processYearlyArchive() {
+      const summary = this.archiveSummaryForSelectedYear;
+      if (summary.txnCount === 0 && summary.trfCount === 0) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Tidak Ada Data',
+          text: `Tidak ada mutasi transaksi aktif pada tahun ${summary.year} untuk diarsipkan.`,
+          customClass: { popup: 'swal2-modern-card' }
+        });
+        return;
+      }
+
+      const confirm = await Swal.fire({
+        title: `Tutup Buku Tahun ${summary.year}?`,
+        html: `
+          <div class="text-left text-sm space-y-3 mt-3 text-slate-600 dark:text-slate-300">
+            <p>Tindakan ini akan mengarsipkan mutasi dan mereset sheet transaksi aktif:</p>
+            <div class="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-1.5 text-xs text-emerald-800 dark:text-emerald-300">
+              <div class="flex justify-between"><span>Total Transaksi Diarsip:</span><b>${summary.txnCount} baris</b></div>
+              <div class="flex justify-between"><span>Total Pindah Dana Diarsip:</span><b>${summary.trfCount} baris</b></div>
+              <div class="flex justify-between"><span>Tab Target:</span><b>Archive_Transactions_${summary.year}</b></div>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">
+              ✓ Sheet transaksi aktif akan kosong dan kembali ringan.<br>
+              ✓ Saldo akhir setiap rekening dikunci menjadi Saldo Awal baru.<br>
+              ✓ Data arsip tetap dapat diakses di menu Arsip.
+            </p>
+          </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Ya, Tutup Buku & Arsipkan',
+        cancelButtonText: 'Batal',
+        confirmButtonColor: '#059669',
+        cancelButtonColor: '#64748b',
+        reverseButtons: true,
+        customClass: { popup: 'swal2-modern-card' }
+      });
+
+      if (!confirm.isConfirmed) return;
+
+      this.isProcessingArchive = true;
+      try {
+        const res = await runApi('archiveYearData', [summary.year, this.currentUser.Username]);
+        
+        // Mode offline / standalone fallback jika web app URL masih placeholder
+        if (!res || !res.success) {
+          if (!WEB_APP_URLS || WEB_APP_URLS[0].includes('...')) {
+            const y = summary.year;
+            const archivedTxns = this.allTransactions.filter(t => this.extractYearFromStr(t.Tanggal) === y);
+            const archivedTrfs = this.allTransfers.filter(tr => this.extractYearFromStr(tr.Tanggal) === y);
+            
+            this.allTransactions = this.allTransactions.filter(t => this.extractYearFromStr(t.Tanggal) !== y);
+            this.allTransfers = this.allTransfers.filter(tr => this.extractYearFromStr(tr.Tanggal) !== y);
+            
+            // Kunci saldo awal
+            this.allAccounts.forEach(a => {
+              a.SaldoAwal = a.SaldoSekarang;
+            });
+
+            let archives = {};
+            try {
+              archives = JSON.parse(localStorage.getItem('DOMPETKU_ARCHIVES') || '{}');
+            } catch(e) {}
+
+            const arcMeta = {
+              ArchiveID: 'ARC-' + y + '-' + Date.now(),
+              Tahun: y,
+              TanggalArsip: this.formatDateInput(new Date()),
+              TotalTransaksi: archivedTxns.length,
+              TotalPindahDana: archivedTrfs.length,
+              Operator: this.currentUser.Username,
+              Status: 'TERARSIP'
+            };
+
+            archives[y] = {
+              year: y,
+              transactions: archivedTxns,
+              transfers: archivedTrfs,
+              meta: arcMeta
+            };
+
+            localStorage.setItem('DOMPETKU_ARCHIVES', JSON.stringify(archives));
+            this.saveLocalData();
+            await this.loadArchiveYears();
+            this.refreshActiveWalletData();
+
+            Swal.fire({
+              icon: 'success',
+              title: 'Tutup Buku Berhasil!',
+              text: `${archivedTxns.length} transaksi & ${archivedTrfs.length} pindah dana tahun ${y} berhasil dipindahkan ke arsip!`,
+              customClass: { popup: 'swal2-modern-card' }
+            });
+            return;
+          }
+
+          Swal.fire({
+            icon: 'error',
+            title: 'Gagal Mengarsipkan',
+            text: res ? res.message : 'Koneksi backend gagal.',
+            customClass: { popup: 'swal2-modern-card' }
+          });
+          return;
+        }
+
+        // Server success
+        await this.syncFromCloud();
+        await this.loadArchiveYears();
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Tutup Buku Berhasil!',
+          text: res.message,
+          customClass: { popup: 'swal2-modern-card' }
+        });
+      } catch (err) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Terjadi Kesalahan',
+          text: err.toString(),
+          customClass: { popup: 'swal2-modern-card' }
+        });
+      } finally {
+        this.isProcessingArchive = false;
+      }
+    },
+
+    async restoreArchive(year) {
+      const confirm = await Swal.fire({
+        title: `Pulihkan Arsip Tahun ${year}?`,
+        text: `Data transaksi tahun ${year} akan dikembalikan ke sheet transaksi aktif.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Ya, Pulihkan ke Sheet Aktif',
+        cancelButtonText: 'Batal',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        reverseButtons: true,
+        customClass: { popup: 'swal2-modern-card' }
+      });
+
+      if (!confirm.isConfirmed) return;
+
+      try {
+        const res = await runApi('restoreArchiveData', [year]);
+        if (!res || !res.success) {
+          const stored = localStorage.getItem('DOMPETKU_ARCHIVES');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed[year]) {
+              this.allTransactions.push(...parsed[year].transactions);
+              this.allTransfers.push(...parsed[year].transfers);
+              delete parsed[year];
+              localStorage.setItem('DOMPETKU_ARCHIVES', JSON.stringify(parsed));
+              this.saveLocalData();
+              await this.loadArchiveYears();
+              this.refreshActiveWalletData();
+              Swal.fire({
+                icon: 'success',
+                title: 'Data Dipulihkan!',
+                text: `Transaksi tahun ${year} berhasil dipulihkan ke sheet aktif.`,
+                customClass: { popup: 'swal2-modern-card' }
+              });
+              return;
+            }
+          }
+          Swal.fire({
+            icon: 'error',
+            title: 'Gagal Memulihkan',
+            text: res ? res.message : 'Server error',
+            customClass: { popup: 'swal2-modern-card' }
+          });
+          return;
+        }
+
+        await this.syncFromCloud();
+        await this.loadArchiveYears();
+        Swal.fire({
+          icon: 'success',
+          title: 'Data Dipulihkan!',
+          text: res.message,
+          customClass: { popup: 'swal2-modern-card' }
+        });
+      } catch (err) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: err.toString(),
+          customClass: { popup: 'swal2-modern-card' }
+        });
+      }
+    },
+
+    downloadFullBackupJSON() {
+      const backupData = {
+        appName: 'DompetKu',
+        exportDate: new Date().toISOString(),
+        wallets: this.wallets,
+        accounts: this.allAccounts,
+        transactions: this.allTransactions,
+        transfers: this.allTransfers,
+        categories: this.allCategories,
+        users: this.users,
+        settings: this.settings,
+        archivesList: this.archivesList
+      };
+      const jsonStr = JSON.stringify(backupData, null, 2);
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      this.downloadBlob(jsonStr, `DompetKu_FullBackup_${dateStr}.json`, 'application/json');
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'Cadangan Terunduh!',
+        text: 'File JSON cadangan lengkap berhasil disimpan.',
+        timer: 2000,
+        showConfirmButton: false,
+        customClass: { popup: 'swal2-modern-card' }
+      });
+    },
+
+    downloadActiveTransactionsCSV() {
+      this.exportTransactionsToCSV(this.allTransactions, 'DompetKu_Transaksi_Aktif');
+    },
+
+    async downloadArchiveCSV(year) {
+      const y = Number(year);
+      let txns = [];
+      if (this.archiveData && this.archiveData.year === y) {
+        txns = this.archiveData.transactions || [];
+      } else {
+        const res = await runApi('getArchiveData', [y]);
+        if (res && res.success && res.transactions) {
+          txns = res.transactions;
+        } else {
+          const stored = localStorage.getItem('DOMPETKU_ARCHIVES');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed[y]) txns = parsed[y].transactions || [];
+          }
+        }
+      }
+      this.exportTransactionsToCSV(txns, `DompetKu_Arsip_${y}`);
+    },
+
+    exportTransactionsToCSV(txnsList, filenamePrefix) {
+      if (!txnsList || txnsList.length === 0) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Data Kosong',
+          text: 'Tidak ada data transaksi untuk diekspor.',
+          customClass: { popup: 'swal2-modern-card' }
+        });
+        return;
+      }
+      
+      const headers = ['TransactionID', 'Dompet', 'Tanggal', 'Tipe', 'Akun', 'Kategori', 'Nominal', 'Deskripsi', 'Kasir'];
+      const rows = [headers.join(',')];
+
+      txnsList.forEach(t => {
+        const w = this.wallets.find(item => item.WalletID === t.WalletID)?.NamaDompet || t.WalletID || '-';
+        const a = this.allAccounts.find(item => item.AccountID === t.AccountID)?.NamaAkun || t.AccountID || '-';
+        const c = this.allCategories.find(item => item.CategoryID === t.CategoryID)?.NamaKategori || t.CategoryID || '-';
+        const row = [
+          `"${t.TransactionID || ''}"`,
+          `"${w}"`,
+          `"${t.Tanggal || ''}"`,
+          `"${t.TipeTransaksi || ''}"`,
+          `"${a}"`,
+          `"${c}"`,
+          t.Nominal || 0,
+          `"${(t.Deskripsi || '').replace(/"/g, '""')}"`,
+          `"${t.KasirUsername || ''}"`
+        ];
+        rows.push(row.join(','));
+      });
+
+      const csvContent = '\uFEFF' + rows.join('\r\n');
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      this.downloadBlob(csvContent, `${filenamePrefix}_${dateStr}.csv`, 'text/csv;charset=utf-8;');
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'CSV Berhasil Diunduh!',
+        text: 'File CSV berhasil dibuat dan siap dibuka di Microsoft Excel.',
+        timer: 2000,
+        showConfirmButton: false,
+        customClass: { popup: 'swal2-modern-card' }
+      });
+    },
+
+    downloadBlob(content, filename, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+
+    // ================= LAPORAN KEUANGAN METHODS =================
+    openReportsTab() {
+      this.activeTab = 'reports';
+      this.isSidebarOpen = false;
+      this.showUserDropdown = false;
+      this.syncReportFiltersWithActive();
+    },
+
+    syncReportFiltersWithActive() {
+      // Sinkronkan bulan & tahun laporan ke filter aktif aplikasi saat ini
+      this.reportSelectedMonth = this.selectedMonth;
+      this.reportSelectedYear = this.selectedYear;
+      
+      // Amankan dompet laporan: jika bukan superadmin, hanya izinkan dompet milik user
+      if (!this.canAccessWallet(this.reportWalletId) || (this.reportWalletId === 'ALL' && !this.isSuperAdmin)) {
+        this.reportWalletId = 'CURRENT';
+      }
+    },
+
+    // ================= CATATAN LABA BULANAN METHODS =================
+    openMonthlyProfitModal(targetMonth = null, targetYear = null) {
+      const m = targetMonth !== null ? Number(targetMonth) : this.reportSelectedMonth;
+      const y = targetYear !== null ? Number(targetYear) : this.reportSelectedYear;
+      const wId = this.reportEffectiveWalletId !== 'ALL' ? this.reportEffectiveWalletId : (this.activeWalletId || 'WLT-1');
+
+      const existing = this.monthlyProfits.find(p => 
+        (p.walletId === wId || p.walletId === '*') && p.month === m && p.year === y
+      );
+
+      if (existing) {
+        this.monthlyProfitForm = {
+          id: existing.id,
+          walletId: existing.walletId,
+          month: existing.month,
+          year: existing.year,
+          nominal: existing.nominal,
+          catatan: existing.catatan || ''
+        };
+      } else {
+        this.monthlyProfitForm = {
+          id: '',
+          walletId: wId,
+          month: m,
+          year: y,
+          nominal: '',
+          catatan: ''
+        };
+      }
+      this.showMonthlyProfitModal = true;
+    },
+
+    async saveMonthlyProfit() {
+      const form = this.monthlyProfitForm;
+      const nominal = Number(form.nominal);
+      if (isNaN(nominal) || nominal < 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Nominal Tidak Valid',
+          text: 'Nominal laba harus berupa angka yang valid (0 atau lebih).'
+        });
+        return;
+      }
+
+      this.isLoading = true;
+      try {
+        const m = Number(form.month);
+        const y = Number(form.year);
+        const wId = form.walletId || 'WLT-1';
+        const nowFormatted = new Date().toLocaleDateString('id-ID') + ' ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+        const idx = this.monthlyProfits.findIndex(p => 
+          (form.id && p.id === form.id) || (p.walletId === wId && p.month === m && p.year === y)
+        );
+
+        const profitItem = {
+          id: form.id || ('PRF-' + new Date().getTime()),
+          walletId: wId,
+          month: m,
+          year: y,
+          nominal: nominal,
+          catatan: (form.catatan || '').trim(),
+          updatedAt: nowFormatted
+        };
+
+        if (idx !== -1) {
+          this.monthlyProfits[idx] = profitItem;
+        } else {
+          this.monthlyProfits.push(profitItem);
+        }
+
+        this.saveLocalData();
+        this.showMonthlyProfitModal = false;
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Laba Bulanan Disimpan!',
+          text: `Catatan laba ${this.monthNames[m]} ${y} sebesar ${this.formatRupiah(nominal)} berhasil ditarik ke laporan operasional.`,
+          timer: 1800,
+          showConfirmButton: false,
+          customClass: { popup: 'swal2-modern-card' }
+        });
+
+        if (this.backendStatus === 'connected') {
+          try {
+            await runApi('saveSettings', [{ MONTHLY_PROFITS: JSON.stringify(this.monthlyProfits) }]);
+          } catch (e) {
+            console.warn('Gagal sync ke cloud settings, tersimpan lokal:', e);
+          }
+        }
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    async deleteMonthlyProfit(id) {
+      const confirm = await Swal.fire({
+        icon: 'warning',
+        title: 'Hapus Catatan Laba?',
+        text: 'Catatan laba bulanan ini akan dihapus dari sistem dan laporan.',
+        showCancelButton: true,
+        confirmButtonText: 'Ya, Hapus',
+        cancelButtonText: 'Batal',
+        confirmButtonColor: '#e11d48'
+      });
+      if (!confirm.isConfirmed) return;
+
+      this.monthlyProfits = this.monthlyProfits.filter(p => p.id !== id);
+      this.saveLocalData();
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Dihapus',
+        text: 'Catatan laba bulanan berhasil dihapus.',
+        timer: 1500,
+        showConfirmButton: false,
+        customClass: { popup: 'swal2-modern-card' }
+      });
+
+      if (this.backendStatus === 'connected') {
+        try {
+          await runApi('saveSettings', [{ MONTHLY_PROFITS: JSON.stringify(this.monthlyProfits) }]);
+        } catch (e) {}
+      }
+    },
+
+    editMonthlyProfitItem(item) {
+      this.monthlyProfitForm = {
+        id: item.id,
+        walletId: item.walletId,
+        month: item.month,
+        year: item.year,
+        nominal: item.nominal,
+        catatan: item.catatan || ''
+      };
+    },
+
+    // ===== METODE PENGATURAN KATEGORI LAPORAN OPERASIONAL =====
+    isReportCategorySelected(catId) {
+      return this.effectiveReportOperationalCategoryIds.includes(catId);
+    },
+
+    toggleReportCategory(catId) {
+      let current = [...this.effectiveReportOperationalCategoryIds];
+      const idx = current.indexOf(catId);
+      if (idx >= 0) {
+        current.splice(idx, 1);
+      } else {
+        current.push(catId);
+      }
+      this.reportSelectedCategoryIds = current;
+      this.saveLocalData();
+    },
+
+    selectStandardOperationalCategories() {
+      const keywords = ['operasional', 'gaji', 'admin', 'bagi hasil'];
+      const matched = this.reportAvailableExpenseCategories.filter(cat => {
+        const name = (cat.NamaKategori || '').toLowerCase();
+        return keywords.some(k => name.includes(k));
+      });
+      this.reportSelectedCategoryIds = matched.map(c => c.CategoryID);
+      this.saveLocalData();
+    },
+
+    selectAllReportCategories() {
+      this.reportSelectedCategoryIds = this.reportAvailableExpenseCategories.map(c => c.CategoryID);
+      this.saveLocalData();
+    },
+
+    clearAllReportCategories() {
+      this.reportSelectedCategoryIds = [];
+      this.saveLocalData();
+    },
+
+    getCategoryExpenseInCurrentPeriod(catId) {
+      return this.reportFilteredTransactions
+        .filter(t => t.TipeTransaksi === 'PENGELUARAN' && t.CategoryID === catId)
+        .reduce((sum, t) => sum + (Number(t.Nominal) || 0), 0);
+    },
+
+    async saveReportCategorySettings() {
+      this.isLoading = true;
+      try {
+        this.saveLocalData();
+        try {
+          localStorage.setItem('DOMPETKU_REPORT_SELECTED_CATS', JSON.stringify(this.reportSelectedCategoryIds));
+          if (this.backendStatus === 'connected') {
+            await runApi('saveSettings', [{ REPORT_SELECTED_CATEGORIES: JSON.stringify(this.reportSelectedCategoryIds) }]);
+          }
+        } catch (e) {}
+        this.showReportCategoryModal = false;
+        Swal.fire({
+          icon: 'success',
+          title: 'Pengaturan Kategori Disimpan!',
+          text: `${this.effectiveReportOperationalCategoryIds.length} kategori pengeluaran aktif diterapkan ke Laporan Operasional.`,
+          timer: 1800,
+          showConfirmButton: false
+        });
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    // ===== METODE PENGATURAN BAGI HASIL =====
+    openProfitSharingModal() {
+      const curNominal = this.reportProfitSharingNominal;
+      const historyNominal = this.reportExpenseBagiHasilNominal;
+      const existingShares = (this.profitSharingConfig?.shares && this.profitSharingConfig.shares.length > 0)
+        ? JSON.parse(JSON.stringify(this.profitSharingConfig.shares))
+        : [
+            { id: 'share-1', name: 'Pihak 1 (Pengelola)', percent: 60 },
+            { id: 'share-2', name: 'Pihak 2 (Investor)', percent: 40 }
+          ];
+
+      const key = this.reportProfitSharingKey;
+      const curMode = this.profitSharingConfig?.modeByPeriod?.[key] || (historyNominal > 0 ? 'auto' : 'manual');
+
+      this.profitSharingForm = {
+        nominal: curNominal,
+        mode: curMode,
+        shares: existingShares
+      };
+      this.showProfitSharingModal = true;
+    },
+
+    addProfitSharingParty() {
+      const newNo = this.profitSharingForm.shares.length + 1;
+      this.profitSharingForm.shares.push({
+        id: 'share-' + Date.now(),
+        name: `Pihak ${newNo} (Mitra)`,
+        percent: 0
+      });
+    },
+
+    removeProfitSharingParty(idx) {
+      if (this.profitSharingForm.shares.length <= 1) return;
+      this.profitSharingForm.shares.splice(idx, 1);
+    },
+
+    setProfitSharingPreset(type) {
+      if (type === '60_40') {
+        this.profitSharingForm.shares = [
+          { id: 'share-1', name: 'Pihak 1 (Pengelola)', percent: 60 },
+          { id: 'share-2', name: 'Pihak 2 (Investor)', percent: 40 }
+        ];
+      } else if (type === '50_50') {
+        this.profitSharingForm.shares = [
+          { id: 'share-1', name: 'Pihak 1 (Pengelola)', percent: 50 },
+          { id: 'share-2', name: 'Pihak 2 (Investor)', percent: 50 }
+        ];
+      } else if (type === '70_30') {
+        this.profitSharingForm.shares = [
+          { id: 'share-1', name: 'Pihak 1 (Pengelola)', percent: 70 },
+          { id: 'share-2', name: 'Pihak 2 (Investor)', percent: 30 }
+        ];
+      }
+    },
+
+    setProfitSharingNominalPreset(amount) {
+      if (amount === 'history') {
+        this.profitSharingForm.mode = 'auto';
+        this.profitSharingForm.nominal = this.reportExpenseBagiHasilNominal;
+      } else if (amount === 'net_profit') {
+        this.profitSharingForm.mode = 'manual';
+        this.profitSharingForm.nominal = Math.max(0, this.reportOperationalNetProfit);
+      } else {
+        this.profitSharingForm.mode = 'manual';
+        this.profitSharingForm.nominal = Number(amount) || 0;
+      }
+    },
+
+    async saveProfitSharingSettings() {
+      this.isLoading = true;
+      try {
+        const key = this.reportProfitSharingKey;
+        if (!this.profitSharingConfig) {
+          this.profitSharingConfig = { isEnabled: true, defaultNominal: 14000000, modeByPeriod: {}, periodNominals: {}, shares: [] };
+        }
+        if (!this.profitSharingConfig.periodNominals) {
+          this.profitSharingConfig.periodNominals = {};
+        }
+        if (!this.profitSharingConfig.modeByPeriod) {
+          this.profitSharingConfig.modeByPeriod = {};
+        }
+        
+        const nom = Number(this.profitSharingForm.nominal) || 0;
+        this.profitSharingConfig.periodNominals[key] = nom;
+        this.profitSharingConfig.defaultNominal = nom;
+        this.profitSharingConfig.modeByPeriod[key] = this.profitSharingForm.mode || 'auto';
+        this.profitSharingConfig.shares = JSON.parse(JSON.stringify(this.profitSharingForm.shares));
+
+        this.saveLocalData();
+        try {
+          localStorage.setItem('DOMPETKU_PROFIT_SHARING_CONFIG', JSON.stringify(this.profitSharingConfig));
+          if (this.backendStatus === 'connected') {
+            await runApi('saveSettings', [{ PROFIT_SHARING_CONFIG: JSON.stringify(this.profitSharingConfig) }]);
+          }
+        } catch (e) {}
+
+        this.showProfitSharingModal = false;
+        const isAuto = this.isReportProfitSharingFromHistory;
+        Swal.fire({
+          icon: 'success',
+          title: 'Pengaturan Bagi Hasil Disimpan!',
+          text: `Nominal ${this.formatRupiah(this.reportProfitSharingNominal)} ${isAuto ? '(otomatis dari riwayat pengeluaran)' : ''} dengan pembagian ${this.profitSharingConfig.shares.map(s => s.percent + '%').join(' : ')} berhasil diterapkan.`,
+          timer: 1800,
+          showConfirmButton: false
+        });
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    openPrintPreview() {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      const prefix = this.reportType === 'operasional' ? 'RPT-OPS' : 'RPT-KMP';
+      this.printDocumentNumber = `${prefix}-${now.getFullYear()}${pad(now.getMonth() + 1)}-${randomSuffix}`;
+      
+      const options = { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      };
+      this.printGeneratedDate = now.toLocaleDateString('id-ID', options) + ' WIB';
+      this.applyPrintOrientation(this.printOrientation || 'portrait');
+      this.showPrintPreviewModal = true;
+    },
+
+    printReport() {
+      this.openPrintPreview();
+    },
+
+    printReportDirect() {
+      this.openPrintPreview();
+      const originalTitle = document.title;
+      document.title = this.reportPdfFileName;
+      
+      const doPrint = () => {
+        this.executePrint();
+      };
+
+      if (typeof this.$nextTick === 'function') {
+        this.$nextTick(() => {
+          setTimeout(doPrint, 150);
+        });
+      } else {
+        setTimeout(doPrint, 180);
+      }
+    },
+
+    async saveReportPDF() {
+      this.openPrintPreview();
+      const filename = this.reportPdfFileName + '.pdf';
+      const originalTitle = document.title;
+      document.title = this.reportPdfFileName;
+
+      // Tunggu hingga rendering DOM lembar cetak stabil
+      await new Promise(r => setTimeout(r, 220));
+
+      if (window.html2pdf) {
+        const sheet = document.getElementById('print-document-sheet');
+        if (!sheet) {
+          this.executePrint();
+          setTimeout(() => { document.title = originalTitle; }, 3000);
+          return;
+        }
+
+        this.isGeneratingPdf = true;
+        sheet.classList.add('is-generating-pdf');
+        const isLandscape = this.printOrientation === 'landscape';
+        if (isLandscape) {
+          sheet.classList.add('is-pdf-landscape');
+          sheet.classList.remove('is-pdf-portrait');
+        } else {
+          sheet.classList.add('is-pdf-portrait');
+          sheet.classList.remove('is-pdf-landscape');
+        }
+
+        const opt = {
+          margin: [6, 8, 8, 8],
+          filename: filename,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { 
+            scale: 2, 
+            useCORS: true, 
+            logging: false,
+            letterRendering: true,
+            scrollX: 0,
+            scrollY: 0,
+            windowWidth: isLandscape ? 1200 : 860
+          },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: isLandscape ? 'landscape' : 'portrait' },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        try {
+          await html2pdf().set(opt).from(sheet).save();
+          Swal.fire({
+            icon: 'success',
+            title: 'PDF Berhasil Disimpan!',
+            text: `File "${filename}" berhasil diunduh ke perangkat Anda.`,
+            timer: 2000,
+            showConfirmButton: false
+          });
+        } catch (err) {
+          console.warn('html2pdf fallback to window.print', err);
+          this.executePrint();
+        } finally {
+          sheet.classList.remove('is-generating-pdf', 'is-pdf-portrait', 'is-pdf-landscape');
+          this.isGeneratingPdf = false;
+          setTimeout(() => { document.title = originalTitle; }, 3000);
+        }
+      } else {
+        this.executePrint();
+        setTimeout(() => { document.title = originalTitle; }, 3000);
+      }
+    },
+
+    downloadSheetPDF() {
+      this.saveReportPDF();
+    },
+
+    setPrintOrientation(orientation) {
+      this.printOrientation = orientation;
+      this.applyPrintOrientation(orientation);
+    },
+
+    applyPrintOrientation(orientation) {
+      let styleEl = document.getElementById('print-page-orientation-style');
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'print-page-orientation-style';
+        document.head.appendChild(styleEl);
+      }
+      if (orientation === 'landscape') {
+        styleEl.innerHTML = '@media print { @page { size: A4 landscape !important; margin: 8mm 10mm 10mm 10mm !important; } }';
+        document.body.classList.add('print-orientation-landscape');
+      } else {
+        styleEl.innerHTML = '@media print { @page { size: A4 portrait !important; margin: 10mm 12mm 12mm 12mm !important; } }';
+        document.body.classList.remove('print-orientation-landscape');
+      }
+    },
+
+    executePrint() {
+      this.applyPrintOrientation(this.printOrientation || 'portrait');
+      document.body.classList.add('is-printing-report');
+      const originalTitle = document.title;
+      document.title = this.reportPdfFileName;
+      
+      setTimeout(() => {
+        window.print();
+        setTimeout(() => {
+          document.body.classList.remove('is-printing-report');
+          document.title = originalTitle;
+        }, 1500);
+      }, 150);
+    },
+
+    closePrintPreview() {
+      this.showPrintPreviewModal = false;
+      document.body.classList.remove('is-printing-report');
+    },
+
+    exportReportCSV() {
+      const lines = [];
+      lines.push(`LAPORAN KEUANGAN DOMPETKU`);
+      lines.push(`Dompet:,"${this.reportWalletName}"`);
+      lines.push(`Tipe Laporan:,"${this.reportType === 'operasional' ? 'Laporan Operasional' : 'Laporan Seluruh Keuangan (Komprehensif)'}"`);
+      lines.push(`Periode:,"${this.reportPeriodLabel}"`);
+      lines.push(`Tanggal Dibuat:,"${new Date().toLocaleString('id-ID')}"`);
+      lines.push(``);
+      lines.push(`RINGKASAN EKSEKUTIF`);
+      lines.push(`Total Pemasukan,${this.reportTotalIncome}`);
+      lines.push(`Total Pengeluaran,${this.reportTotalExpense}`);
+      if (this.reportType === 'operasional') {
+        const catNames = this.effectiveReportOperationalCategoryIds.map(id => this.allCategories.find(c => c.CategoryID === id)?.NamaKategori || id).join('; ');
+        lines.push(`Kategori Pemotong Terpilih,,"${catNames}"`);
+        lines.push(`Total Beban Kategori Terpilih,${this.reportOperationalTotalExpense}`);
+        if (this.hasReportMonthlyProfit) {
+          lines.push(`Catatan Laba Bulanan (Diinput),${this.reportTotalMonthlyProfitInput}`);
+        }
+        lines.push(`Laba Bersih Operasional (Laba - Kategori Terpilih),${this.reportOperationalNetProfit}`);
+        lines.push(`Laba Bagi Hasil,${this.reportProfitSharingNominal}`);
+        lines.push(`Total Sisa Laba (Laba Bersih - Bagi Hasil),${this.reportRemainingProfit}`);
+        lines.push(``);
+        lines.push(`PERHITUNGAN BAGI HASIL`);
+        lines.push(`No,Pihak,Persen,Nominal`);
+        this.reportProfitSharingDistribution.forEach(s => {
+          lines.push(`${s.no},"${s.name}","${s.percent}%",${s.nominal}`);
+        });
+      }
+      lines.push(`Surplus / Defisit Bersih,${this.reportNetSurplus}`);
+      lines.push(`Volume Pindah Dana,${this.reportTotalTransfers}`);
+      lines.push(`Total Posisi Kas,${this.reportTotalBalance}`);
+      lines.push(``);
+      lines.push(`RINCIAN PER KATEGORI`);
+      lines.push(`Kategori,Tipe,Jumlah Transaksi,Total Nominal,Persentase`);
+      this.reportCategoryBreakdown.forEach(c => {
+        lines.push(`"${c.nama}","${c.tipe}",${c.count},${c.total},"${c.percent}%"`);
+      });
+      lines.push(``);
+      lines.push(`POSISI SALDO & ARUS REKENING`);
+      lines.push(`Akun Rekening,Tipe,Total Masuk,Total Keluar,Arus Bersih,Saldo Terkini`);
+      this.reportAccountBreakdown.forEach(a => {
+        lines.push(`"${a.namaAkun}","${a.tipeAkun}",${a.totalMasuk},${a.totalKeluar},${a.netFlow},${a.saldoSekarang}`);
+      });
+      lines.push(``);
+      lines.push(`RINCIAN TRANSAKSI`);
+      lines.push(`TransactionID,Tanggal,Tipe,Akun,Kategori,Nominal,Deskripsi,Kasir`);
+      this.reportFilteredTransactions.forEach(t => {
+        const a = this.allAccounts.find(item => item.AccountID === t.AccountID)?.NamaAkun || t.AccountID || '-';
+        const c = this.allCategories.find(item => item.CategoryID === t.CategoryID)?.NamaKategori || t.CategoryID || '-';
+        lines.push(`"${t.TransactionID}","${this.formatDateOnly(t.Tanggal)}","${t.TipeTransaksi}","${a}","${c}",${t.Nominal},"${(t.Deskripsi || '').replace(/"/g, '""')}","${t.KasirUsername || ''}"`);
+      });
+
+      const csvContent = '\uFEFF' + lines.join('\r\n');
+      const filename = `Laporan_${this.reportType}_${this.reportWalletName.replace(/[^a-zA-Z0-9]/g, '_')}_${this.reportPeriodLabel.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
+      this.downloadBlob(csvContent, filename, 'text/csv;charset=utf-8;');
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Laporan Diunduh!',
+        text: 'File CSV laporan lengkap berhasil diunduh.',
+        timer: 1800,
+        showConfirmButton: false,
+        customClass: { popup: 'swal2-modern-card' }
+      });
+    }
+  };
+}
+</script>
